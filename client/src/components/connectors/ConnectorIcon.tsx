@@ -27,6 +27,7 @@ export const CONNECTOR_DOMAINS: Record<string, string> = {
   github: "github.com",
   notion: "notion.so",
   jira: "atlassian.com",
+  clickup: "clickup.com",
   brandfetch: "brandfetch.com",
 };
 
@@ -39,6 +40,7 @@ export const SIMPLE_ICON_SLUGS: Record<string, string> = {
   github: "github",
   notion: "notion",
   jira: "jira",
+  clickup: "clickup",
 };
 
 export interface ConnectorIconProps {
@@ -67,6 +69,8 @@ function getFallbackLucideIcon(key?: string, className = "h-5 w-5") {
       return <Bookmark className={cn(className, "text-foreground")} />;
     case "jira":
       return <CheckSquare className={cn(className, "text-blue-500")} />;
+    case "clickup":
+      return <CheckSquare className={cn(className, "text-purple-500")} />;
     case "mcp-server":
       return <Cpu className={cn(className, "text-purple-500")} />;
     case "custom-rest":

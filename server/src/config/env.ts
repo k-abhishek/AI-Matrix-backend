@@ -36,7 +36,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
   SLACK_CLIENT_ID: z.string().optional().default(''),
   SLACK_CLIENT_SECRET: z.string().optional().default(''),
-  OAUTH_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:5000/api/oauth/callback'),
+  OAUTH_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:3000/api/oauth/callback'),
   FRONTEND_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:5173/connector'),
 
   // MongoDB / Mongoose

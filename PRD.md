@@ -23,10 +23,10 @@ Build an intelligent, self-hosted knowledge assistant that can ingest any websit
 ## 2. Architecture
 
 ```
-Browser → http://localhost:5000
+Browser → http://localhost:5173
               │
               ▼
-        Fastify (port 5000)
+        Fastify (port 3000)
          /api/*  → Fastify API routes
               │
      ┌────────┼─────────┐

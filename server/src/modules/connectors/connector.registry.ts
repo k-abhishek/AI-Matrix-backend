@@ -17,9 +17,9 @@ export const SYSTEM_CONNECTOR_SEEDS: SystemConnectorSeed[] = [
   {
     key: 'gmail',
     name: 'Gmail',
-    description: 'Read, search, draft, and organize emails via Google Workspace Gmail MCP Server',
+    description: 'Read, search, draft, and organize emails via Google Workspace Gmail MCP Server (with Native REST fallback)',
     type: 'MCP',
-    supportedAuth: ['OAUTH2_AUTHORIZATION_CODE', 'BEARER_TOKEN'],
+    supportedAuth: ['OAUTH2_AUTHORIZATION_CODE', 'BEARER_TOKEN', 'API_KEY'],
     iconUrl: 'https://assets.matrix.ai/connectors/gmail.svg',
     docUrl: 'https://developers.google.com/gmail/api',
     defaultConfig: {
@@ -91,9 +91,9 @@ export const SYSTEM_CONNECTOR_SEEDS: SystemConnectorSeed[] = [
   {
     key: 'slack',
     name: 'Slack',
-    description: 'Search workspace history, read threads, and post messages via Slack Remote MCP Server',
+    description: 'Search workspace history, read threads, and post messages via Slack API or MCP',
     type: 'MCP',
-    supportedAuth: ['OAUTH2_AUTHORIZATION_CODE', 'BEARER_TOKEN'],
+    supportedAuth: ['BEARER_TOKEN', 'OAUTH2_AUTHORIZATION_CODE'],
     iconUrl: 'https://assets.matrix.ai/connectors/slack.svg',
     docUrl: 'https://api.slack.com',
     defaultConfig: {
@@ -107,7 +107,7 @@ export const SYSTEM_CONNECTOR_SEEDS: SystemConnectorSeed[] = [
     name: 'GitHub',
     description: 'Manage repositories, create pull requests, read issues, and query code via GitHub API',
     type: 'NATIVE',
-    supportedAuth: ['OAUTH2_AUTHORIZATION_CODE', 'BEARER_TOKEN', 'API_KEY'],
+    supportedAuth: ['BEARER_TOKEN', 'API_KEY', 'OAUTH2_AUTHORIZATION_CODE'],
     iconUrl: 'https://assets.matrix.ai/connectors/github.svg',
     docUrl: 'https://docs.github.com/en/rest',
     defaultConfig: {
@@ -119,7 +119,7 @@ export const SYSTEM_CONNECTOR_SEEDS: SystemConnectorSeed[] = [
     name: 'Notion',
     description: 'Query pages, databases, and blocks to synchronize organizational knowledge',
     type: 'NATIVE',
-    supportedAuth: ['OAUTH2_AUTHORIZATION_CODE', 'BEARER_TOKEN'],
+    supportedAuth: ['BEARER_TOKEN', 'API_KEY', 'OAUTH2_AUTHORIZATION_CODE'],
     iconUrl: 'https://assets.matrix.ai/connectors/notion.svg',
     docUrl: 'https://developers.notion.com',
   },
@@ -128,9 +128,18 @@ export const SYSTEM_CONNECTOR_SEEDS: SystemConnectorSeed[] = [
     name: 'Atlassian Jira',
     description: 'Search Jira issues, create tickets, and update issue sprint statuses',
     type: 'NATIVE',
-    supportedAuth: ['OAUTH2_AUTHORIZATION_CODE', 'BASIC_AUTH', 'BEARER_TOKEN'],
+    supportedAuth: ['BASIC_AUTH', 'BEARER_TOKEN', 'API_KEY', 'OAUTH2_AUTHORIZATION_CODE'],
     iconUrl: 'https://assets.matrix.ai/connectors/jira.svg',
     docUrl: 'https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/',
+  },
+  {
+    key: 'clickup',
+    name: 'ClickUp',
+    description: 'Manage tasks, workspaces, lists, and team productivity via ClickUp API',
+    type: 'NATIVE',
+    supportedAuth: ['API_KEY', 'BEARER_TOKEN', 'OAUTH2_AUTHORIZATION_CODE'],
+    iconUrl: 'https://assets.matrix.ai/connectors/clickup.svg',
+    docUrl: 'https://clickup.com/api',
   },
   {
     key: 'mcp-server',

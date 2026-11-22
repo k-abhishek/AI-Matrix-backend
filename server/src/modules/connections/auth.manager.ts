@@ -58,7 +58,12 @@ export class AuthManager {
         `&code_challenge=${codeChallenge}` +
         `&code_challenge_method=S256`;
     } else if (provider === 'slack') {
-      const clientId = env.SLACK_CLIENT_ID || 'mock_slack_client_id';
+      const clientId = env.SLACK_CLIENT_ID || (process.env.NODE_ENV === 'test' ? 'mock_slack_client_id' : '');
+      if (!clientId) {
+        throw new BadRequestError(
+          'Slack OAuth is not configured. Please set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in .env, or connect using a Slack Bot Token (Bearer Token).'
+        );
+      }
       const scopeParam = encodeURIComponent(scopes.join(','));
       const redirectParam = encodeURIComponent(redirectUri);
 
@@ -69,14 +74,9 @@ export class AuthManager {
         `&scope=${scopeParam}` +
         `&state=${state}`;
     } else {
-      // Generic OAuth fallback
-      authorizationUrl =
-        `https://auth.example.com/oauth/authorize?` +
-        `client_id=generic_client` +
-        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-        `&response_type=code` +
-        `&state=${state}` +
-        `&code_challenge=${codeChallenge}`;
+      throw new BadRequestError(
+        `OAuth 2.0 is not configured for '${connection.connectorDefinition.name || provider}'. Please connect using direct credentials (API Token / Key / Basic Auth).`
+      );
     }
 
     // Persist OAuthTransaction

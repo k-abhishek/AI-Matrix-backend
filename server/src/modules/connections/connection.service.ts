@@ -274,12 +274,129 @@ export class ConnectionService {
   }
 
   /**
-   * Triggers MCP discovery for tools, resources, and prompts on an active connection.
+   * Triggers tool, resource, and prompt discovery on an active connection.
+   * If the connection is NATIVE, delegates to its Native Adapter.
+   * If MCP discovery fails and a native adapter exists, gracefully falls back to native discovery.
    */
   async discoverConnection(connectionId: string, workspaceId: string) {
-    await this.getConnectionById(connectionId, workspaceId);
-    const mcpDiscoveryService = (await import('../mcp/mcp-discovery.service')).default;
-    return mcpDiscoveryService.discoverAll(connectionId);
+    const conn = await prisma.connectorConnection.findFirst({
+      where: { id: connectionId, workspaceId },
+      include: { connectorDefinition: true },
+    });
+
+    if (!conn) {
+      throw new NotFoundError(`Connection '${connectionId}' not found in workspace`);
+    }
+
+    const { nativeAdapterRegistry } = await import('../adapters/native/native-adapter.registry');
+    const key = conn.connectorDefinition.key;
+    const isNative = conn.connectorDefinition.type === 'NATIVE';
+
+    if (isNative && nativeAdapterRegistry.hasAdapter(key)) {
+      const adapter = nativeAdapterRegistry.getAdapter(key)!;
+      const tools = await adapter.discoverTools({
+        id: conn.id,
+        name: conn.name,
+        workspaceId: conn.workspaceId,
+        userId: conn.userId,
+        connectorKey: key,
+        authType: conn.authType,
+        baseUrl: conn.baseUrl,
+        config: conn.config as any,
+      });
+
+      for (const t of tools) {
+        await prisma.connectorTool.upsert({
+          where: {
+            connectionId_name: {
+              connectionId,
+              name: t.name,
+            },
+          },
+          update: {
+            displayName: t.displayName,
+            description: t.description,
+            inputSchema: t.inputSchema,
+            requiresApproval: t.requiresApproval || false,
+            rateLimitPerMin: t.rateLimitPerMin || 60,
+            updatedAt: new Date(),
+          },
+          create: {
+            connectionId,
+            name: t.name,
+            displayName: t.displayName,
+            description: t.description,
+            inputSchema: t.inputSchema,
+            requiresApproval: t.requiresApproval || false,
+            rateLimitPerMin: t.rateLimitPerMin || 60,
+            isEnabled: true,
+          },
+        }).catch(() => {});
+      }
+
+      return {
+        toolsCount: tools.length,
+        resourcesCount: 0,
+        promptsCount: 0,
+        tools,
+      };
+    }
+
+    try {
+      const mcpDiscoveryService = (await import('../mcp/mcp-discovery.service')).default;
+      return await mcpDiscoveryService.discoverAll(connectionId);
+    } catch (err: any) {
+      if (nativeAdapterRegistry.hasAdapter(key)) {
+        const adapter = nativeAdapterRegistry.getAdapter(key)!;
+        const tools = await adapter.discoverTools({
+          id: conn.id,
+          name: conn.name,
+          workspaceId: conn.workspaceId,
+          userId: conn.userId,
+          connectorKey: key,
+          authType: conn.authType,
+          baseUrl: conn.baseUrl,
+          config: conn.config as any,
+        });
+
+        for (const t of tools) {
+          await prisma.connectorTool.upsert({
+            where: {
+              connectionId_name: {
+                connectionId,
+                name: t.name,
+              },
+            },
+            update: {
+              displayName: t.displayName,
+              description: t.description,
+              inputSchema: t.inputSchema,
+              requiresApproval: t.requiresApproval || false,
+              rateLimitPerMin: t.rateLimitPerMin || 60,
+              updatedAt: new Date(),
+            },
+            create: {
+              connectionId,
+              name: t.name,
+              displayName: t.displayName,
+              description: t.description,
+              inputSchema: t.inputSchema,
+              requiresApproval: t.requiresApproval || false,
+              rateLimitPerMin: t.rateLimitPerMin || 60,
+              isEnabled: true,
+            },
+          }).catch(() => {});
+        }
+
+        return {
+          toolsCount: tools.length,
+          resourcesCount: 0,
+          promptsCount: 0,
+          tools,
+        };
+      }
+      throw err;
+    }
   }
 
   /**
@@ -317,11 +434,87 @@ export class ConnectionService {
 
   /**
    * Executes a diagnostic ping / health check on a connection.
+   * If the connection is NATIVE, runs the Native Adapter's testConnection.
    */
   async testConnection(connectionId: string, workspaceId: string) {
-    await this.getConnectionById(connectionId, workspaceId);
-    const mcpClientManager = (await import('../mcp/mcp-client.manager')).default;
-    return mcpClientManager.pingConnection(connectionId);
+    const conn = await prisma.connectorConnection.findFirst({
+      where: { id: connectionId, workspaceId },
+      include: { connectorDefinition: true },
+    });
+
+    if (!conn) {
+      throw new NotFoundError(`Connection '${connectionId}' not found in workspace`);
+    }
+
+    const { nativeAdapterRegistry } = await import('../adapters/native/native-adapter.registry');
+    const key = conn.connectorDefinition.key;
+    const isNative = conn.connectorDefinition.type === 'NATIVE';
+
+    if (isNative && nativeAdapterRegistry.hasAdapter(key)) {
+      const adapter = nativeAdapterRegistry.getAdapter(key)!;
+      const result = await adapter.testConnection({
+        id: conn.id,
+        name: conn.name,
+        workspaceId: conn.workspaceId,
+        userId: conn.userId,
+        connectorKey: key,
+        authType: conn.authType,
+        baseUrl: conn.baseUrl,
+        config: conn.config as any,
+      });
+
+      await prisma.connectorConnection.update({
+        where: { id: connectionId },
+        data: {
+          status: result.status,
+          lastTestedAt: result.testedAt,
+          lastErrorMessage: result.isHealthy ? null : result.message,
+        },
+      }).catch(() => {});
+
+      return {
+        isHealthy: result.isHealthy,
+        latencyMs: result.details?.latencyMs || 0,
+        message: result.message,
+        error: result.isHealthy ? undefined : result.message,
+      };
+    }
+
+    try {
+      const mcpClientManager = (await import('../mcp/mcp-client.manager')).default;
+      return await mcpClientManager.pingConnection(connectionId);
+    } catch (err: any) {
+      if (nativeAdapterRegistry.hasAdapter(key)) {
+        const adapter = nativeAdapterRegistry.getAdapter(key)!;
+        const result = await adapter.testConnection({
+          id: conn.id,
+          name: conn.name,
+          workspaceId: conn.workspaceId,
+          userId: conn.userId,
+          connectorKey: key,
+          authType: conn.authType,
+          baseUrl: conn.baseUrl,
+          config: conn.config as any,
+        });
+
+        await prisma.connectorConnection.update({
+          where: { id: connectionId },
+          data: {
+            status: result.status,
+            lastTestedAt: result.testedAt,
+            lastErrorMessage: result.isHealthy ? null : result.message,
+          },
+        }).catch(() => {});
+
+        return {
+          isHealthy: result.isHealthy,
+          latencyMs: result.details?.latencyMs || 0,
+          message: result.message,
+          error: result.isHealthy ? undefined : result.message,
+        };
+      }
+      throw err;
+    }
   }
 
   /**

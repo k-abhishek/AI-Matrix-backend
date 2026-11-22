@@ -4,6 +4,7 @@ import jsonSchemaToZod from '../../utils/schema-converter';
 import mcpExecutionService from '../mcp/mcp-execution.service';
 import customRestConnectorAdapter from '../adapters/rest/custom-rest.adapter';
 import gmailSendFallbackAdapter from '../adapters/native/fallback/gmail-send-fallback';
+import nativeAdapterRegistry from '../adapters/native/native-adapter.registry';
 import logger from '../../lib/logger';
 
 export class AgentToolResolverService {
@@ -58,6 +59,25 @@ export class AgentToolResolverService {
                   input as any
                 );
                 return JSON.stringify(sendResult.data || { success: sendResult.success });
+              }
+
+              // Native adapter routing for NATIVE connector type
+              if (connection.connectorDefinition.type === 'NATIVE') {
+                const adapter = nativeAdapterRegistry.getAdapter(connection.connectorDefinition.key);
+                if (adapter) {
+                  const nativeResult = await adapter.executeTool(t.name, input, {
+                    connectionId: connection.id,
+                    workspaceId,
+                    baseUrl: connection.baseUrl,
+                    config: connection.config as any,
+                  });
+                  if (!nativeResult.success) {
+                    return `Tool error: ${nativeResult.error}`;
+                  }
+                  return typeof nativeResult.data === 'string'
+                    ? nativeResult.data
+                    : JSON.stringify(nativeResult.data);
+                }
               }
 
               // Custom REST connector routing

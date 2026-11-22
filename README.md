@@ -11,10 +11,10 @@ A modern full-stack application built with React, TypeScript, Tailwind CSS, and 
 - **Production**: Fastify serves the compiled Vite static build
 
 ```
-Browser → http://localhost:5000
+Browser → http://localhost:5173
               │
               ▼
-        Fastify (port 5000)
+        Fastify (port 3000)
          /api/*  → Fastify API routes
          /*      → Vite middleware (dev) or static files (prod)
 ```

@@ -127,9 +127,9 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
       return;
     }
 
-    const isMcpOrRest = connector ? connector.type !== 'NATIVE' : true;
+    const isMcpOrRest = connector ? (connector.type !== 'NATIVE' || connector.key === 'jira') : true;
     if (isMcpOrRest && !baseUrl.trim()) {
-      setFormError('Server Base URL is required for MCP and REST integrations.');
+      setFormError(connector?.key === 'jira' ? 'Atlassian Cloud URL (e.g. https://your-domain.atlassian.net) is required.' : 'Server Base URL is required for MCP and REST integrations.');
       return;
     }
 
@@ -309,17 +309,17 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
               )}
             </div>
 
-            {/* Base URL (for MCP or REST) */}
-            {(connector ? connector.type !== 'NATIVE' : true) && (
+            {/* Base URL (for MCP, REST, or Jira) */}
+            {(connector ? (connector.type !== 'NATIVE' || connector.key === 'jira') : true) && (
               <div>
                 <label className="block text-[11px] font-semibold text-foreground uppercase tracking-wider mb-1">
-                  Server Endpoint / Base URL <span className="text-red-500">*</span>
+                  {connector?.key === 'jira' ? 'Atlassian Cloud Instance URL' : 'Server Endpoint / Base URL'} <span className="text-red-500">*</span>
                 </label>
                 <Input
                   type="url"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://mcp.yourdomain.com/v1"
+                  placeholder={connector?.key === 'jira' ? 'https://your-domain.atlassian.net' : 'https://mcp.yourdomain.com/v1'}
                   className="font-mono text-xs h-8"
                   required
                 />
@@ -339,7 +339,15 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
                 {connector ? (
                   connector.supportedAuth.map((auth) => (
                     <option key={auth} value={auth}>
-                      {auth.replace(/_/g, ' ')}
+                      {auth === 'BASIC_AUTH' && connector.key === 'jira'
+                        ? 'Atlassian API Token (Basic Auth - Recommended)'
+                        : auth === 'BEARER_TOKEN' && connector.key === 'notion'
+                        ? 'Internal Integration Secret (Recommended)'
+                        : auth === 'BEARER_TOKEN' && connector.key === 'slack'
+                        ? 'Slack Bot User Token (Recommended)'
+                        : auth === 'API_KEY' && connector.key === 'clickup'
+                        ? 'ClickUp Personal API Token (Recommended)'
+                        : auth.replace(/_/g, ' ')}
                     </option>
                   ))
                 ) : (
@@ -360,10 +368,10 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
                 <ExternalLink className="h-4 w-4" />
                 <div>
                   <AlertTitle className="text-xs font-semibold">
-                    OAuth 2.0 Authorization Code Flow
+                    OAuth 2.0 Authorization Flow
                   </AlertTitle>
                   <AlertDescription className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                    Clicking "Authenticate" below will securely redirect you to the identity provider to grant permissions. You will be returned here automatically.
+                    Clicking "Authorize with OAuth" redirects you to the vendor consent page. Note: If OAuth credentials are not configured in your server environment, or if you encounter Google/vendor restriction errors, choose <strong>Direct Token / API Key / Basic Auth</strong> as a native fallback.
                   </AlertDescription>
                 </div>
               </Alert>
@@ -372,7 +380,7 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
             {authType === 'API_KEY' && (
               <div>
                 <label className="block text-[11px] font-semibold text-foreground uppercase tracking-wider mb-1">
-                  API Key <span className="text-red-500">*</span>
+                  {connector?.key === 'clickup' ? 'ClickUp Personal API Token' : 'API Key'} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <Key className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground z-10" />
@@ -380,7 +388,7 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter confidential API key..."
+                    placeholder={connector?.key === 'clickup' ? 'pk_12345678_...' : 'Enter confidential API key...'}
                     className="pl-8 font-mono text-xs h-8"
                     required
                   />
@@ -391,7 +399,13 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
             {authType === 'BEARER_TOKEN' && (
               <div>
                 <label className="block text-[11px] font-semibold text-foreground uppercase tracking-wider mb-1">
-                  Bearer Token <span className="text-red-500">*</span>
+                  {connector?.key === 'notion'
+                    ? 'Notion Internal Integration Secret'
+                    : connector?.key === 'slack'
+                    ? 'Slack Bot User OAuth Token'
+                    : connector?.key === 'gmail'
+                    ? 'Google OAuth Access Token / App Password'
+                    : 'Bearer Token'} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground z-10" />
@@ -399,7 +413,13 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
                     type="password"
                     value={bearerToken}
                     onChange={(e) => setBearerToken(e.target.value)}
-                    placeholder="eyJhbGciOi..."
+                    placeholder={
+                      connector?.key === 'notion'
+                        ? 'secret_... or ntn_...'
+                        : connector?.key === 'slack'
+                        ? 'xoxb-...'
+                        : 'eyJhbGciOi...'
+                    }
                     className="pl-8 font-mono text-xs h-8"
                     required
                   />
@@ -411,26 +431,26 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-semibold text-foreground uppercase tracking-wider mb-1">
-                    Username
+                    {connector?.key === 'jira' ? 'Atlassian Email' : 'Username'}
                   </label>
                   <Input
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="user@example.com"
+                    placeholder={connector?.key === 'jira' ? 'you@company.com' : 'user@example.com'}
                     className="text-xs h-8"
                     required
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-foreground uppercase tracking-wider mb-1">
-                    Password / Token
+                    {connector?.key === 'jira' ? 'Atlassian API Token' : 'Password / Token'}
                   </label>
                   <Input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder={connector?.key === 'jira' ? 'ATATT3xFfGF...' : '••••••••'}
                     className="text-xs h-8"
                     required
                   />

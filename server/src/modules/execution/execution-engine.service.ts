@@ -4,6 +4,7 @@ import ConnectorExecutionLog from '../../models/ConnectorExecutionLog';
 import mcpExecutionService from '../mcp/mcp-execution.service';
 import customRestConnectorAdapter from '../adapters/rest/custom-rest.adapter';
 import gmailSendFallbackAdapter from '../adapters/native/fallback/gmail-send-fallback';
+import nativeAdapterRegistry from '../adapters/native/native-adapter.registry';
 import authManager from '../connections/auth.manager';
 import { AppError, NotFoundError } from '../../lib/errors';
 import logger from '../../lib/logger';
@@ -100,6 +101,28 @@ export class ExecutionEngineService {
           error: res.error,
           durationMs: Date.now() - startTime,
         };
+      } else if (defType === 'NATIVE') {
+        connectorType = 'NATIVE';
+        const adapter = nativeAdapterRegistry.getAdapter(defKey);
+        if (adapter) {
+          const res = await adapter.executeTool(toolName, parameters, {
+            connectionId,
+            workspaceId,
+            userId: request.userId,
+            agentId: request.agentId,
+            baseUrl: connection.baseUrl,
+            config: connection.config as any,
+            timeoutMs: request.timeoutMs,
+          });
+          executionResult = {
+            success: res.success,
+            data: res.data,
+            error: res.error,
+            durationMs: res.durationMs,
+          };
+        } else {
+          throw new AppError(`No native adapter implemented for '${defKey}'`, 400);
+        }
       } else if (defType === 'CUSTOM_REST' || defKey === 'custom-rest') {
         connectorType = 'CUSTOM_REST';
         const res = await customRestConnectorAdapter.executeTool(toolName, parameters, {
@@ -117,18 +140,42 @@ export class ExecutionEngineService {
         };
       } else {
         connectorType = 'MCP';
-        const res = await mcpExecutionService.executeTool({
-          connectionId,
-          toolName,
-          parameters,
-          timeoutMs: request.timeoutMs,
-        });
-        executionResult = {
-          success: res.success,
-          data: res.data,
-          error: res.error,
-          durationMs: res.durationMs,
-        };
+        try {
+          const res = await mcpExecutionService.executeTool({
+            connectionId,
+            toolName,
+            parameters,
+            timeoutMs: request.timeoutMs,
+          });
+          executionResult = {
+            success: res.success,
+            data: res.data,
+            error: res.error,
+            durationMs: res.durationMs,
+          };
+        } catch (mcpErr: any) {
+          if (nativeAdapterRegistry.hasAdapter(defKey)) {
+            logger.warn(`[ExecutionEngine] MCP failed for '${toolName}', attempting native fallback...`);
+            const adapter = nativeAdapterRegistry.getAdapter(defKey)!;
+            const res = await adapter.executeTool(toolName, parameters, {
+              connectionId,
+              workspaceId,
+              userId: request.userId,
+              agentId: request.agentId,
+              baseUrl: connection.baseUrl,
+              config: connection.config as any,
+              timeoutMs: request.timeoutMs,
+            });
+            executionResult = {
+              success: res.success,
+              data: res.data,
+              error: res.error,
+              durationMs: res.durationMs,
+            };
+          } else {
+            throw mcpErr;
+          }
+        }
       }
     } catch (err: any) {
       executionResult = {

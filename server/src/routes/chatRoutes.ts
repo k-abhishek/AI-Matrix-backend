@@ -1,10 +1,12 @@
 import { FastifyPluginAsync } from "fastify";
 import chatService from "../modules/chat/chat.service";
 import logger from "../lib/logger";
+import { requireAuth } from "../middleware/auth";
 
 interface ChatRequestBody {
   prompt: string;
   chatId?: string;
+  agentId?: string;
 }
 
 interface ChatIdParams {
@@ -12,9 +14,10 @@ interface ChatIdParams {
 }
 
 const chatRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook("preHandler", requireAuth);
   /**
    * POST /api/chat
-   * Sends a user prompt to the LangChain Groq agent.
+   * Sends a user prompt to the LangChain Gemini agent.
    * Leverages ChatService and ChatRepository for MongoDB conversation persistence.
    */
   fastify.post<{ Body: ChatRequestBody }>(
@@ -42,7 +45,8 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
         },
         response: {
           200: {
-            description: "Agent response with chatId, tool calls, and citations",
+            description:
+              "Agent response with chatId, tool calls, and citations",
             type: "object",
             properties: {
               chatId: { type: "string" },
@@ -88,14 +92,15 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (req, reply) => {
-      const { prompt, chatId } = req.body;
+      const { prompt, chatId, agentId } = req.body;
 
       if (!prompt || prompt.trim() === "") {
         return reply.status(400).send({ error: "Prompt cannot be empty" });
       }
 
       try {
-        const response = await chatService.sendMessage({ prompt, chatId });
+        const workspaceId = (req as any).auth?.orgId || (req as any).userId || "default_user";
+        const response = await chatService.sendMessage({ prompt, chatId, agentId, workspaceId });
         return reply.status(200).send(response);
       } catch (err: unknown) {
         const errorMessage =
@@ -103,6 +108,122 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
         logger.error(`Error in POST /api/chat:`, err);
         return reply.status(500).send({ error: errorMessage });
       }
+    },
+  );
+
+  /**
+   * POST /api/chat/stream
+   * Streams conversational agent response in real time using Server-Sent Events (SSE).
+   * Compatible with @microsoft/fetch-event-source and modern streaming frontends.
+   */
+  fastify.post<{ Body: ChatRequestBody }>(
+    "/stream",
+    {
+      schema: {
+        description:
+          "Stream a prompt response from the LangChain Gemini agent using Server-Sent Events (SSE)",
+        tags: ["Chat"],
+        summary: "Stream chat message response",
+        body: {
+          type: "object",
+          required: ["prompt"],
+          properties: {
+            prompt: {
+              type: "string",
+              description: "The user message or research prompt",
+            },
+            chatId: {
+              type: "string",
+              description:
+                "Optional threadId/chatId UUID to continue an existing conversation",
+            },
+            agentId: {
+              type: "string",
+              description:
+                "Optional agent UUID to dynamically bind connector tools",
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { prompt, chatId, agentId } = req.body || {};
+      const workspaceId = (req as any).auth?.orgId || (req as any).userId || "default_user";
+
+      if (!prompt || prompt.trim() === "") {
+        return reply.status(400).send({ error: "Prompt cannot be empty" });
+      }
+
+      // Ensure Fastify-computed headers (such as CORS) are applied to the raw response
+      const corsHeaders = reply.getHeaders();
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        if (value !== undefined) {
+          reply.raw.setHeader(key, value);
+        }
+      }
+
+      // Configure Server-Sent Events headers
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+
+      const abortController = new AbortController();
+      req.raw.on("close", () => {
+        if (!reply.raw.writableEnded) {
+          abortController.abort();
+        }
+      });
+
+      const sendEvent = (event: string, data: any) => {
+        if (!reply.raw.writableEnded) {
+          reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        }
+      };
+
+      await chatService.sendMessageStream(
+        { prompt, chatId, agentId, workspaceId },
+        {
+          onInit: (data) => {
+            sendEvent("init", data);
+          },
+          onToken: (chunk) => {
+            sendEvent("token", { chunk });
+          },
+          onToolStart: (data) => {
+            sendEvent("tool_start", data);
+          },
+          onToolEnd: (data) => {
+            sendEvent("tool_end", data);
+          },
+          onDone: (data) => {
+            sendEvent("done", data);
+            if (!reply.raw.writableEnded) {
+              reply.raw.end();
+            }
+          },
+          onError: (err) => {
+            const is429 =
+              err.message.includes("429") ||
+              err.message.toLowerCase().includes("rate_limit") ||
+              err.message.toLowerCase().includes("quota");
+
+            sendEvent("error", {
+              error: is429
+                ? "Gemini rate limit or quota reached. Please wait a moment before trying again."
+                : err.message || "An error occurred while streaming response",
+              code: is429 ? "RATE_LIMIT" : "INTERNAL_ERROR",
+            });
+
+            if (!reply.raw.writableEnded) {
+              reply.raw.end();
+            }
+          },
+        },
+        abortController.signal,
+      );
     },
   );
 
@@ -136,7 +257,10 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
                 items: {
                   type: "object",
                   properties: {
-                    role: { type: "string", enum: ["user", "assistant", "tool", "system"] },
+                    role: {
+                      type: "string",
+                      enum: ["user", "assistant", "tool", "system"],
+                    },
                     content: { type: "string" },
                     toolCalls: {
                       type: "array",
@@ -216,7 +340,8 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
     "/",
     {
       schema: {
-        description: "Fetch all conversations with chatId, title, and timestamp",
+        description:
+          "Fetch all conversations with chatId, title, and timestamp",
         tags: ["Chat"],
         summary: "Get all chat conversations",
         response: {

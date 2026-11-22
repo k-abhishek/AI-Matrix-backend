@@ -7,6 +7,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "../ui/dialog";
+import { Input } from "../ui/input";
 import type { ChatThread } from "../../types";
 
 interface SearchChatModalProps {
@@ -57,14 +58,14 @@ export const SearchChatModal: React.FC<SearchChatModalProps> = ({
         {/* Search bar on top */}
         <div className="px-4 pb-3">
           <div className="relative flex items-center">
-            <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input
+            <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+            <Input
               type="text"
               autoFocus
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search conversations by title..."
-              className="w-full h-10 pl-9 pr-9 text-sm bg-muted/60 border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all placeholder:text-muted-foreground"
+              className="w-full h-10 pl-9 pr-9 text-sm bg-muted/60"
             />
             {searchQuery && (
               <button

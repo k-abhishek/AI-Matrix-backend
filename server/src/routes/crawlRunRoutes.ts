@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import crawlRunController from '../modules/crawl-runs/crawl-run.controller';
+import { requireAuth } from '../middleware/auth';
 
 const errorResponseSchema = {
   type: 'object',
@@ -59,6 +60,7 @@ const runIdParamSchema = {
  * Base Prefix: /api/crawl-runs
  */
 const crawlRunRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', requireAuth);
   /**
    * GET /api/crawl-runs
    * Retrieve a paginated list of crawl runs, optionally filtered by crawler ID.

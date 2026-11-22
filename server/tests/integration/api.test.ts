@@ -31,6 +31,9 @@ describe('Fastify Crawler API Endpoints', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/crawlers',
+      headers: {
+        'x-test-bypass': 'true',
+      },
       payload: {},
     });
 
@@ -45,6 +48,9 @@ describe('Fastify Crawler API Endpoints', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/crawlers',
+      headers: {
+        'x-test-bypass': 'true',
+      },
       payload: {
         name: 'Test Crawler',
         sitemapUrl: 'not-a-valid-url',

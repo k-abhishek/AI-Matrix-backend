@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import crawlerController from '../modules/crawlers/crawler.controller';
+import { requireAuth } from '../middleware/auth';
 
 const errorResponseSchema = {
   type: 'object',
@@ -56,6 +57,7 @@ const idParamSchema = {
  * Base Prefix: /api/crawlers
  */
 const crawlerRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', requireAuth);
   /**
    * POST /api/crawlers
    * Register a new website crawler configuration.

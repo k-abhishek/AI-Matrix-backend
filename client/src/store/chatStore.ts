@@ -22,6 +22,8 @@ export interface ChatState {
   clearCurrentChat: () => void;
   setMessages: (messages: ChatMessage[]) => void;
   addMessage: (message: ChatMessage) => void;
+  appendStreamChunk: (chunk: string) => void;
+  updateLastMessage: (updates: Partial<ChatMessage>) => void;
   setIsLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
@@ -115,6 +117,32 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messages: [...state.messages, message],
     })),
+
+  appendStreamChunk: (chunk: string) =>
+    set((state) => {
+      if (state.messages.length === 0) return state;
+      const lastIndex = state.messages.length - 1;
+      const last = state.messages[lastIndex];
+      const updatedMessages = [...state.messages];
+      updatedMessages[lastIndex] = {
+        ...last,
+        content: (last.content || "") + chunk,
+      };
+      return { messages: updatedMessages };
+    }),
+
+  updateLastMessage: (updates: Partial<ChatMessage>) =>
+    set((state) => {
+      if (state.messages.length === 0) return state;
+      const lastIndex = state.messages.length - 1;
+      const last = state.messages[lastIndex];
+      const updatedMessages = [...state.messages];
+      updatedMessages[lastIndex] = {
+        ...last,
+        ...updates,
+      };
+      return { messages: updatedMessages };
+    }),
 
   setIsLoading: (isLoading) => set({ isLoading }),
 

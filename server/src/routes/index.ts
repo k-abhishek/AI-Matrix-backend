@@ -4,6 +4,12 @@ import crawlerRoutes from './crawlerRoutes';
 import crawlRunRoutes from './crawlRunRoutes';
 import chatRoutes from './chatRoutes';
 import searchRoutes from './searchRoutes';
+import connectorRoutes from './connectorRoutes';
+import connectionRoutes from './connectionRoutes';
+import mcpRoutes from './mcpRoutes';
+import oauthRoutes from './oauthRoutes';
+import agentBindingRoutes from './agentBindingRoutes';
+import brandRoutes from './brandRoutes';
 
 /**
  * Main API Routes Aggregator Plugin.
@@ -86,6 +92,24 @@ const apiRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Semantic Vector Search (/api/search)
   await fastify.register(searchRoutes, { prefix: '/search' });
+
+  // Connector Platform Catalog (/api/connectors)
+  await fastify.register(connectorRoutes, { prefix: '/connectors' });
+
+  // Workspace Connections Management (/api/connections)
+  await fastify.register(connectionRoutes, { prefix: '/connections' });
+
+  // Model Context Protocol Management & Discovery (/api/mcp)
+  await fastify.register(mcpRoutes, { prefix: '/mcp' });
+
+  // OAuth 2.0 & Connection Authentication (/api/connections/:id/auth & /api/oauth/callback)
+  await fastify.register(oauthRoutes);
+
+  // Agent Connector Bindings (/api/agents/:agentId/connectors)
+  await fastify.register(agentBindingRoutes, { prefix: '/agents' });
+
+  // Brandfetch Brand Data (/api/brands)
+  await fastify.register(brandRoutes, { prefix: '/brands' });
 };
 
 export default apiRoutes;

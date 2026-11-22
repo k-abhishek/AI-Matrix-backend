@@ -66,6 +66,21 @@ export class ChatRepository {
   }
 
   /**
+   * Updates the cumulative epoch summary and summarized message count for a thread.
+   */
+  async updateSummary(
+    chatId: string,
+    summary: string,
+    summarizedMessageCount: number
+  ): Promise<IChatThread | null> {
+    return ChatThread.findOneAndUpdate(
+      { chatId },
+      { $set: { summary, summarizedMessageCount } },
+      { new: true }
+    );
+  }
+
+  /**
    * Retrieves a lightweight list of conversation threads sorted by recency.
    */
   async listThreads(limit = 50): Promise<ChatThreadSummary[]> {

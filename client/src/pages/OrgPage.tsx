@@ -222,71 +222,68 @@ const OrgPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col w-full h-full min-h-[calc(100vh-64px)] relative overflow-hidden">
-      {/* Top Header / Action Bar */}
-      <div className="flex items-center justify-end px-6 py-4 z-10 gap-4 flex-wrap">
-        {/* Toolbar Controls */}
-        <div className="flex items-center gap-2 ml-auto">
-          {activeEmployee && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleShowAll}
-              className="gap-1.5 text-xs h-8"
-              title="Show Whole Org"
-            >
-              <Users className="h-4 w-4" />
-              <span>Show Whole Org</span>
-            </Button>
-          )}
-
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={handleZoomOut}
-            className="h-8 w-8"
-            title="Zoom Out"
-          >
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-
+    <div className="relative w-full h-full flex-1 min-h-0 overflow-hidden">
+      {/* Floating Toolbar Controls */}
+      <div className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-background/80 backdrop-blur-md p-1.5 rounded-lg shadow-sm">
+        {activeEmployee && (
           <Button
             variant="outline"
             size="sm"
-            onClick={handleResetZoom}
-            className="h-8 min-w-[58px] px-2.5 text-xs font-mono"
-            title="Click to reset zoom to 75%"
-          >
-            {zoomLevel}%
-          </Button>
-
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={handleZoomIn}
-            className="h-8 w-8"
-            title="Zoom In"
-          >
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleFit}
+            onClick={handleShowAll}
             className="gap-1.5 text-xs h-8"
-            title="Fit to Screen"
+            title="Show Whole Org"
           >
-            <Maximize2 className="h-3.5 w-3.5" />
-            <span>Fit</span>
+            <Users className="h-4 w-4" />
+            <span>Show Whole Org</span>
           </Button>
-        </div>
+        )}
+
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={handleZoomOut}
+          className="h-8 w-8"
+          title="Zoom Out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleResetZoom}
+          className="h-8 min-w-[58px] px-2.5 text-xs font-mono"
+          title="Click to reset zoom to 75%"
+        >
+          {zoomLevel}%
+        </Button>
+
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={handleZoomIn}
+          className="h-8 w-8"
+          title="Zoom In"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleFit}
+          className="gap-1.5 text-xs h-8"
+          title="Fit to Screen"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+          <span>Fit</span>
+        </Button>
       </div>
 
       {/* D3 Org Chart Canvas Container */}
       <div
         ref={d3Container}
-        className="flex-1 w-full h-full relative overflow-hidden [&_svg]:!w-full [&_svg]:!h-full [&_svg]:cursor-grab [&_svg:active]:cursor-grabbing [&_.link]:transition-[stroke,stroke-width] [&_.link]:duration-200 [&_.node-button-div]:!bg-transparent [&_.node-button-div]:!border-none [&_.node-button-div]:!p-0 [&_.node-rect]:!stroke-none [&_.node-rect]:!stroke-0 [&_.node-rect]:!fill-none"
+        className="w-full h-full relative overflow-hidden [&_svg]:!w-full [&_svg]:!h-full [&_svg]:cursor-grab [&_svg:active]:cursor-grabbing [&_.link]:transition-[stroke,stroke-width] [&_.link]:duration-200 [&_.node-button-div]:!bg-transparent [&_.node-button-div]:!border-none [&_.node-button-div]:!p-0 [&_.node-rect]:!stroke-none [&_.node-rect]:!stroke-0 [&_.node-rect]:!fill-none"
       />
     </div>
   );

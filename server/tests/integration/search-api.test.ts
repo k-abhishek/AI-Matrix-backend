@@ -20,6 +20,9 @@ describe('Fastify Search API Endpoints', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/search',
+      headers: {
+        'x-test-bypass': 'true',
+      },
       payload: {
         query: '   ',
       },
@@ -79,6 +82,9 @@ describe('Fastify Search API Endpoints', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/search',
+      headers: {
+        'x-test-bypass': 'true',
+      },
       payload: {
         query: 'fastify plugins',
         limit: 5,

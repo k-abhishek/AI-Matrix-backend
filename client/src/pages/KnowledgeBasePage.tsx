@@ -5,6 +5,8 @@ import StatusBadge from "../components/ui/StatusBadge";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 import ErrorMessage from "../components/ui/ErrorMessage";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import PageHeader from "../components/ui/PageHeader";
 import { CreateCrawlerModal } from "../components/crawler/CreateCrawlerModal";
 import { useCrawlers, useCrawlerMetrics } from "../hooks/useKnowledgeBase";
 import {
@@ -171,31 +173,23 @@ export const KnowledgeBasePage: React.FC = () => {
   return (
     <div className="flex-1 p-6 md:p-8 space-y-10 max-w-6xl mx-auto w-full">
       {/* Header Banner */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-primary font-medium text-xs">
-          <BookOpen className="h-4 w-4" />
-          <span>Documentation & Knowledge Base</span>
-        </div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-          Knowledge Base
-        </h1>
-        <p className="text-sm text-muted-foreground max-w-2xl">
-          Manage knowledge base to index online documentation and knowledge
-          resources directly into your vector database for AI search and RAG
-          workflows.
-        </p>
-      </div>
+      <PageHeader
+        icon={BookOpen}
+        eyebrow="Documentation & Knowledge Base"
+        title="Knowledge Base"
+        description="Manage knowledge base to index online documentation and knowledge resources directly into your vector database for AI search and RAG workflows."
+      />
 
       {/* Search Input & Add Crawler Button */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-lg">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+          <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search crawlers and documentation..."
-            className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-4 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="pl-10"
           />
         </div>
 

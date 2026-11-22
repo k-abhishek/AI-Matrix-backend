@@ -50,7 +50,6 @@ my-fullstack-app/
 │   │   │   └── requestLogger.ts
 │   │   ├── routes/
 │   │   │   ├── healthRoutes.ts
-│   │   │   ├── chatOpenaiRoutes.ts
 │   │   │   └── index.ts
 │   │   ├── services/
 │   │   │   └── healthService.ts

@@ -4,6 +4,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { AlertCircle, RefreshCw, Sparkles, Inbox } from "lucide-react";
 import PromptInput, { PromptMode } from "../components/PromptInput";
 import SearchResultCard from "../components/search/SearchResultCard";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { Button } from "../components/ui/button";
+import Skeleton from "../components/ui/Skeleton";
 import { searchApi } from "../api";
 import { useChatStore } from "../store";
 import type { SearchResultItem } from "../types";
@@ -107,42 +110,45 @@ export const SearchPage: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between p-4 rounded-2xl border border-destructive/20 bg-destructive/10 text-destructive text-sm"
           >
-            <div className="flex items-center gap-3">
-              <AlertCircle className="h-5 w-5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => performSearch(queryParam)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors text-xs font-medium"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Retry
-            </button>
+            <Alert variant="destructive" className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                <AlertDescription className="text-sm">{error}</AlertDescription>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={() => performSearch(queryParam)}
+                className="gap-1.5 h-8 text-xs font-medium shrink-0 ml-4"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </Button>
+            </Alert>
           </motion.div>
         )}
 
         {/* Loading Skeletons */}
         {isLoading && (
           <div className="flex flex-col gap-4">
-            <div className="h-4 w-44 rounded bg-muted animate-pulse mb-2" />
+            <Skeleton className="h-4 w-44 mb-2" />
             {[...Array(4)].map((_, i) => (
               <div
                 key={i}
-                className="flex flex-col gap-3 p-5 rounded-2xl border border-border/40 bg-card/60 animate-pulse"
+                className="flex flex-col gap-3 p-5 rounded-2xl border border-border/40 bg-card/60"
               >
                 <div className="flex justify-between items-center">
-                  <div className="h-5 w-1/3 rounded bg-muted" />
-                  <div className="h-5 w-16 rounded-full bg-muted" />
+                  <Skeleton className="h-5 w-1/3" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
                 </div>
                 <div className="space-y-2">
-                  <div className="h-3.5 w-full rounded bg-muted/80" />
-                  <div className="h-3.5 w-5/6 rounded bg-muted/70" />
-                  <div className="h-3.5 w-4/6 rounded bg-muted/60" />
+                  <Skeleton className="h-3.5 w-full" />
+                  <Skeleton className="h-3.5 w-5/6" />
+                  <Skeleton className="h-3.5 w-4/6" />
                 </div>
-                <div className="h-3 w-1/4 rounded bg-muted/50 pt-2" />
+                <Skeleton className="h-3 w-1/4 mt-2" />
               </div>
             ))}
           </div>

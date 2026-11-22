@@ -23,6 +23,18 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class UnauthorizedError extends AppError {
+  constructor(message = 'Authentication required or invalid credentials', details?: unknown) {
+    super(message, 401, details);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Access forbidden for current permissions', details?: unknown) {
+    super(message, 403, details);
+  }
+}
+
 export class BadRequestError extends AppError {
   constructor(message = 'Invalid request payload or parameters', details?: unknown) {
     super(message, 400, details);

@@ -27,6 +27,8 @@ export interface IChatMessage {
 export interface IChatThread extends Document {
   chatId: string;
   title?: string;
+  summary?: string;
+  summarizedMessageCount?: number;
   messages: IChatMessage[];
   createdAt: Date;
   updatedAt: Date;
@@ -92,6 +94,14 @@ const ChatThreadSchema = new Schema<IChatThread>(
     title: {
       type: String,
       trim: true,
+    },
+    summary: {
+      type: String,
+      default: undefined,
+    },
+    summarizedMessageCount: {
+      type: Number,
+      default: 0,
     },
     messages: {
       type: [ChatMessageSchema],

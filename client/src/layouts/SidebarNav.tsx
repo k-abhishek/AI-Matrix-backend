@@ -6,6 +6,7 @@ import {
   Home,
   LucideIcon,
   User,
+  Plug,
 } from "lucide-react";
 import { cn } from "../utils/cn";
 import { SearchChatModal } from "../components/chat/SearchChatModal";
@@ -28,6 +29,11 @@ export const navigationItems: NavItem[] = [
     title: "Knowledge Base",
     href: "/knowledge-base",
     icon: BookOpen,
+  },
+  {
+    title: "Connectors",
+    href: "/connectors",
+    icon: Plug,
   },
   {
     title: "People",

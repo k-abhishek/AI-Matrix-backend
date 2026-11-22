@@ -9,6 +9,8 @@ import {
   DialogClose,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Alert, AlertDescription } from '../ui/alert';
 import { useCreateCrawler } from '../../hooks/useKnowledgeBase';
 import { Loader2, Globe, SlidersHorizontal, Plus, AlertCircle } from 'lucide-react';
 import type { CreateCrawlerDto, Crawler } from '../../types';
@@ -122,10 +124,12 @@ export const CreateCrawlerModal: React.FC<CreateCrawlerModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           {formError && (
-            <div className="rounded-lg bg-destructive/15 border border-destructive/30 p-3 text-destructive flex items-start gap-2.5 text-xs">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{formError}</span>
-            </div>
+            <Alert variant="destructive" className="py-2.5 text-xs">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs font-medium">
+                {formError}
+              </AlertDescription>
+            </Alert>
           )}
 
           {/* Crawler Name */}
@@ -133,12 +137,11 @@ export const CreateCrawlerModal: React.FC<CreateCrawlerModalProps> = ({
             <label className="text-xs font-semibold text-foreground">
               Crawler Name <span className="text-destructive">*</span>
             </label>
-            <input
+            <Input
               type="text"
               placeholder="e.g. Developer Docs"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               required
             />
           </div>
@@ -148,12 +151,11 @@ export const CreateCrawlerModal: React.FC<CreateCrawlerModalProps> = ({
             <label className="text-xs font-semibold text-foreground">
               Sitemap URL <span className="text-destructive">*</span>
             </label>
-            <input
+            <Input
               type="url"
               placeholder="https://docs.example.com/sitemap.xml"
               value={sitemapUrl}
               onChange={(e) => setSitemapUrl(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               required
             />
             <p className="text-[11px] text-muted-foreground">
@@ -166,12 +168,11 @@ export const CreateCrawlerModal: React.FC<CreateCrawlerModalProps> = ({
             <label className="text-xs font-semibold text-foreground">
               Base URL <span className="text-muted-foreground font-normal">(Optional)</span>
             </label>
-            <input
+            <Input
               type="url"
               placeholder="https://docs.example.com"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <p className="text-[11px] text-muted-foreground">
               Defaults to sitemap origin if left blank.

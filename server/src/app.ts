@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import formbody from "@fastify/formbody";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { clerkPlugin } from "@clerk/fastify";
 import env from "./config/env";
 import { requestLogger } from "./lib/logger";
 import { errorHandler } from "./lib/errors";
@@ -42,17 +43,35 @@ export const buildApp = async (
         return cb(null, true);
       }
       const normalizedOrigin = origin.replace(/\/+$/, "");
-      if (allowedOrigins.has("*") || allowedOrigins.has(normalizedOrigin)) {
+      if (
+        allowedOrigins.has("*") ||
+        allowedOrigins.has(normalizedOrigin) ||
+        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin)
+      ) {
         return cb(null, true);
       }
-      return cb(new Error(`Origin '${origin}' not allowed by CORS`), false);
+      return cb(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
     preflightContinue: false,
     strictPreflight: false,
   });
+
+  // Clerk Authentication Plugin
+  if (env.CLERK_PUBLISHABLE_KEY || env.CLERK_SECRET_KEY) {
+    await app.register(clerkPlugin, {
+      publishableKey: env.CLERK_PUBLISHABLE_KEY || undefined,
+      secretKey: env.CLERK_SECRET_KEY || undefined,
+    });
+  } else {
+    // Clerk keys not yet set in environment
+    if (process.env.NODE_ENV !== "test") {
+      console.warn(
+        "\x1b[33m[AUTH WARNING] Clerk publishable/secret keys are missing from environment. Authentication will reject requests.\x1b[0m",
+      );
+    }
+  }
 
   // Swagger (OpenAPI) specification
   await app.register(swagger, {
@@ -90,6 +109,18 @@ export const buildApp = async (
         {
           name: "Chat",
           description: "AI conversational agent with crawled content",
+        },
+        {
+          name: "Connectors",
+          description: "Unified Connector Platform catalog and definitions",
+        },
+        {
+          name: "Connections",
+          description: "Workspace connector connections and lifecycle management",
+        },
+        {
+          name: "MCP",
+          description: "Model Context Protocol (MCP) diagnostics, probing, and discovery",
         },
         { name: "Health", description: "Liveness and readiness checks" },
       ],

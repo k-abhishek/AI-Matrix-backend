@@ -45,6 +45,21 @@ class ApiClient {
     this.tokenProvider = provider;
   }
 
+  public async getAuthHeaders(): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const token = await this.getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
+  public getUrl(path: string, params?: RequestOptions['params']): string {
+    return this.buildUrl(path, params);
+  }
+
   private async getAuthToken(): Promise<string | null> {
     if (!this.tokenProvider) return null;
     try {

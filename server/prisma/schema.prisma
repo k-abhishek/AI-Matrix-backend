@@ -143,3 +143,255 @@ model CrawlRunPage {
   @@map("crawl_run_pages")
 }
 
+// ==========================================
+// CONNECTOR PLATFORM ENUMS
+// ==========================================
+
+enum ConnectorType {
+  NATIVE
+  MCP
+  CUSTOM_REST
+}
+
+enum ConnectionAuthType {
+  NONE
+  API_KEY
+  BEARER_TOKEN
+  BASIC_AUTH
+  OAUTH2_AUTHORIZATION_CODE
+  OAUTH2_CLIENT_CREDENTIALS
+  CUSTOM_HEADERS
+}
+
+enum ConnectionStatus {
+  INITIALIZING
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  EXPIRED
+  REVOKED
+}
+
+enum McpTransportType {
+  STREAMABLE_HTTP
+  LEGACY_HTTP_SSE
+  STDIO_ISOLATED
+}
+
+enum ToolExecutionStatus {
+  SUCCESS
+  FAILED
+  TIMED_OUT
+  PERMISSION_DENIED
+  APPROVAL_REQUIRED
+}
+
+// ==========================================
+// CONNECTOR PLATFORM MODELS
+// ==========================================
+
+model ConnectorDefinition {
+  id            String               @id @default(uuid())
+  key           String               @unique // e.g. "gmail", "slack", "github", "mcp-server", "custom-rest"
+  name          String
+  description   String
+  type          ConnectorType
+  supportedAuth ConnectionAuthType[]
+  iconUrl       String?
+  docUrl        String?
+  isSystem      Boolean              @default(true)
+  defaultConfig Json?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  connections   ConnectorConnection[]
+
+  @@map("connector_definitions")
+}
+
+model ConnectorConnection {
+  id                    String              @id @default(uuid())
+  workspaceId           String              // Clerk orgId or fallback to userId
+  userId                String              // Creator Clerk userId
+  connectorDefinitionId String
+  name                  String
+  status                ConnectionStatus    @default(INITIALIZING)
+  authType              ConnectionAuthType
+  
+  baseUrl               String?
+  mcpTransport          McpTransportType?
+  config                Json?
+  
+  lastConnectedAt       DateTime?
+  lastTestedAt          DateTime?
+  lastDiscoveredAt      DateTime?
+  lastErrorMessage      String?
+  configVersion         Int                 @default(1)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  connectorDefinition   ConnectorDefinition @relation(fields: [connectorDefinitionId], references: [id], onDelete: Restrict)
+  credential            ConnectorCredential?
+  tools                 ConnectorTool[]
+  resources             ConnectorResource[]
+  prompts               ConnectorPrompt[]
+  permissions           ConnectorPermission[]
+  agentBindings         AgentConnectorBinding[]
+  oauthTransactions     OAuthTransaction[]
+
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([connectorDefinitionId])
+  @@index([status])
+  @@map("connector_connections")
+}
+
+model ConnectorCredential {
+  id                    String              @id @default(uuid())
+  connectionId          String              @unique
+  encryptedData         String              // AES-256-GCM ciphertext
+  iv                    String              // Initialization vector (Base64)
+  authTag               String              // GCM authentication tag (Base64)
+  keyId                 String              @default("v1")
+  expiresAt             DateTime?
+  refreshTokenExpiresAt DateTime?
+  tokenType             String?             // e.g. "Bearer"
+  scopes                String[]            @default([])
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  connection            ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("connector_credentials")
+}
+
+model ConnectorTool {
+  id               String              @id @default(uuid())
+  connectionId     String
+  name             String
+  displayName      String
+  description      String
+  inputSchema      Json
+  outputSchema     Json?
+  schemaHash       String?
+  isEnabled        Boolean             @default(true)
+  requiresApproval Boolean             @default(false)
+  rateLimitPerMin  Int?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  connection       ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, name])
+  @@index([connectionId])
+  @@index([isEnabled])
+  @@map("connector_tools")
+}
+
+model ConnectorResource {
+  id               String              @id @default(uuid())
+  connectionId     String
+  uri              String              // MCP Resource URI (e.g. file:///docs/readme.md)
+  name             String
+  description      String?
+  mimeType         String?
+  isIndexed        Boolean             @default(false)
+  lastReadAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  connection       ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, uri])
+  @@index([connectionId])
+  @@map("connector_resources")
+}
+
+model ConnectorPrompt {
+  id               String              @id @default(uuid())
+  connectionId     String
+  name             String              // MCP Prompt template name
+  description      String?
+  arguments        Json?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  connection       ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, name])
+  @@index([connectionId])
+  @@map("connector_prompts")
+}
+
+model ConnectorPermission {
+  id           String              @id @default(uuid())
+  connectionId String
+  workspaceId  String
+  role         String?
+  userId       String?
+  canExecute   Boolean             @default(true)
+  canManage    Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  connection   ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, workspaceId, userId])
+  @@index([workspaceId])
+  @@map("connector_permissions")
+}
+
+model AgentConnectorBinding {
+  id               String              @id @default(uuid())
+  agentId          String
+  connectionId     String
+  workspaceId      String
+  allowedToolNames String[]            @default([])
+  isEnabled        Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  connection       ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, connectionId])
+  @@index([agentId])
+  @@index([workspaceId])
+  @@map("agent_connector_bindings")
+}
+
+model OAuthTransaction {
+  id           String              @id @default(uuid())
+  connectionId String
+  state        String              @unique
+  codeVerifier String?
+  redirectUri  String
+  scopes       String[]            @default([])
+  expiresAt    DateTime
+  createdAt    DateTime            @default(now())
+
+  connection   ConnectorConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([state])
+  @@index([expiresAt])
+  @@map("oauth_transactions")
+}
+
+model ConnectorAuditLog {
+  id           String              @id @default(uuid())
+  workspaceId  String
+  connectionId String
+  userId       String?
+  agentId      String?
+  action       String
+  details      Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime            @default(now())
+
+  @@index([workspaceId])
+  @@index([connectionId])
+  @@index([createdAt])
+  @@map("connector_audit_logs")
+}
+

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "motion/react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import PromptInput from "../components/PromptInput";
 import { MarkdownRenderer } from "../components/chat";
 import Skeleton from "../components/ui/Skeleton";
@@ -35,17 +36,28 @@ const ChatPage: React.FC = () => {
     setCurrentChat,
     setCurrentChatId,
     addMessage,
+    appendStreamChunk,
+    updateLastMessage,
     addChat,
     clearCurrentChat,
   } = useChatStore();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isFetchingThread, setIsFetchingThread] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const skipNextFetchRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const initialPromptHandledRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Clean up any pending abort controller on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Auto scroll smoothly to bottom whenever messages change, deferring to rAF to avoid forced reflows on mount
   useEffect(() => {
@@ -54,60 +66,119 @@ const ChatPage: React.FC = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
     return () => cancelAnimationFrame(frameId);
-  }, [messages.length, isLoading, isFetchingThread]);
+  }, [messages.length, isLoading, isFetchingThread, statusMessage]);
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading || isFetchingThread) return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // Add user message
     addMessage({
       role: "user",
       content: trimmed,
       createdAt: new Date(),
     });
 
+    // Add initial placeholder for assistant stream
+    addMessage({
+      role: "assistant",
+      content: "",
+      createdAt: new Date(),
+    });
+
+    setIsLoading(true);
+    setError(null);
+    setStatusMessage(null);
+    setPrompt("");
+
+    let resolvedChatId = chatId;
+    let accumulatedText = "";
+
     try {
-      setIsLoading(true);
-      setError(null);
+      await chatApi.streamMessage(
+        {
+          prompt: trimmed,
+          chatId,
+        },
+        {
+          onInit: (data) => {
+            if (data.chatId) {
+              resolvedChatId = data.chatId;
+            }
+          },
+          onToken: (chunk) => {
+            accumulatedText += chunk;
+            appendStreamChunk(chunk);
+          },
+          onToolStart: (data) => {
+            if (data.tool === "search_knowledge_base") {
+              setStatusMessage("Searching knowledge base...");
+            } else {
+              setStatusMessage(`Using ${data.tool}...`);
+            }
+          },
+          onToolEnd: (data) => {
+            setStatusMessage(null);
+            if (data.citations && data.citations.length > 0) {
+              updateLastMessage({ citations: data.citations });
+            }
+          },
+          onDone: (data) => {
+            setStatusMessage(null);
+            if (data.citations && data.citations.length > 0) {
+              updateLastMessage({ citations: data.citations });
+            }
 
-      const response = await chatApi.sendMessage({
-        prompt: trimmed,
-        chatId,
-      });
-
-      addMessage({
-        role: "assistant",
-        content: response.message,
-        createdAt: new Date(),
-      });
-
-      if (!chatId && response.chatId) {
-        const title = trimmed.replace(/\s+/g, " ").slice(0, 50);
-        skipNextFetchRef.current = response.chatId;
-        addChat({
-          chatId: response.chatId,
-          title,
-          messages: [
-            { role: "user", content: trimmed, createdAt: new Date() },
-            {
-              role: "assistant",
-              content: response.message,
-              createdAt: new Date(),
-            },
-          ],
-        });
-        setCurrentChatId(response.chatId);
-        navigate(`/chat/${response.chatId}`, { replace: true });
-      }
+            if (!chatId && resolvedChatId) {
+              const title = trimmed.replace(/\s+/g, " ").slice(0, 50);
+              skipNextFetchRef.current = resolvedChatId;
+              addChat({
+                chatId: resolvedChatId,
+                title,
+                messages: [
+                  { role: "user", content: trimmed, createdAt: new Date() },
+                  {
+                    role: "assistant",
+                    content: accumulatedText || data.message,
+                    citations: data.citations,
+                    createdAt: new Date(),
+                  },
+                ],
+              });
+              setCurrentChatId(resolvedChatId);
+              navigate(`/chat/${resolvedChatId}`, { replace: true });
+            }
+          },
+          onError: (err) => {
+            if (abortController.signal.aborted) return;
+            const message =
+              err instanceof Error
+                ? err.message
+                : "Failed to stream message. Please try again.";
+            setError(message);
+            console.error("Error streaming chat response:", err);
+          },
+        },
+        abortController.signal,
+      );
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to send message. Please try again.";
-      setError(message);
-      console.error("Error sending chat prompt:", err);
+      if (!abortController.signal.aborted) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Failed to stream message. Please try again.";
+        setError(message);
+        console.error("Error in chat streaming:", err);
+      }
     } finally {
       setIsLoading(false);
-      setPrompt("");
+      setStatusMessage(null);
     }
   };
 
@@ -205,7 +276,36 @@ const ChatPage: React.FC = () => {
                   {msg.role}
                 </div>
                 {msg.role === "assistant" ? (
-                  <MarkdownRenderer content={msg.content} />
+                  <>
+                    {msg.content ? (
+                      <MarkdownRenderer content={msg.content} />
+                    ) : (
+                      <div className="flex items-center space-x-2 text-muted-foreground py-1">
+                        <div className="h-2 w-2 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+                        <div className="h-2 w-2 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+                        <div className="h-2 w-2 rounded-full bg-current animate-bounce" />
+                      </div>
+                    )}
+
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-2 items-center">
+                        <span className="text-xs font-medium text-muted-foreground">Sources:</span>
+                        {msg.citations.map((c, ci) => (
+                          <a
+                            key={ci}
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={c.snippet || c.url}
+                            className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-muted/80 hover:bg-muted text-foreground border border-border/50 transition-colors"
+                          >
+                            <ExternalLink className="h-3 w-3 text-primary" />
+                            <span className="max-w-[180px] truncate">{c.title || c.url}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="whitespace-pre-wrap leading-relaxed">
                     {msg.content}
@@ -214,7 +314,14 @@ const ChatPage: React.FC = () => {
               </div>
             ))}
 
-            {isLoading && (
+            {statusMessage && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/70 border border-border/50 rounded-xl px-3.5 py-2 w-fit mr-auto shadow-sm">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span>{statusMessage}</span>
+              </div>
+            )}
+
+            {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
               <div className="bg-muted text-foreground mr-auto w-fit max-w-3xl rounded-2xl p-4 text-sm shadow-sm">
                 <div className="text-xs font-semibold uppercase mb-1.5 opacity-70 tracking-wider">
                   assistant

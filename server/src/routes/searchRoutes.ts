@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import searchController from '../modules/search/search.controller';
+import { requireAuth } from '../middleware/auth';
 
 /**
  * Fastify routes plugin for Semantic Vector Search.
@@ -12,6 +13,7 @@ import searchController from '../modules/search/search.controller';
  * - Top-K candidate pagination.
  */
 const searchRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', requireAuth);
   /**
    * POST /api/search
    * Execute a semantic vector similarity search via JSON payload.

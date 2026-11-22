@@ -22,7 +22,22 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(DEFAULT_CONFIG.PORT),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default(DEFAULT_CONFIG.LOG_LEVEL),
-  CORS_ORIGIN: z.string().default('http://localhost:5000'),
+  CORS_ORIGIN: z.string().default(''),
+
+  // Clerk Authentication
+  CLERK_PUBLISHABLE_KEY: z.string().optional().default(''),
+  CLERK_SECRET_KEY: z.string().optional().default(''),
+
+  // Credential Vault
+  ENCRYPTION_MASTER_KEY: z.string().optional().default(''),
+
+  // OAuth Providers (Optional)
+  GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  SLACK_CLIENT_ID: z.string().optional().default(''),
+  SLACK_CLIENT_SECRET: z.string().optional().default(''),
+  OAUTH_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:5000/api/oauth/callback'),
+  FRONTEND_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:5173/connector'),
 
   // MongoDB / Mongoose
   MONGODB_URL: z.string().default('mongodb://localhost:27017/chat'),
@@ -51,8 +66,12 @@ const envSchema = z.object({
   GOOGLE_API_KEY: z.string().optional().or(z.literal('')),
 
   // Agent & LLM
+  AGENT_PROVIDER: z.enum(['google', 'groq', 'openai', 'anthropic', 'auto']).default('auto'),
+  GEMINI_API_KEY: z.string().optional().or(z.literal('')),
   GROQ_API_KEY: z.string().optional().or(z.literal('')),
-  AGENT_MODEL: z.string().default('openai/gpt-oss-20b'),
+  OPENAI_API_KEY: z.string().optional().or(z.literal('')),
+  ANTHROPIC_API_KEY: z.string().optional().or(z.literal('')),
+  AGENT_MODEL: z.string().default(process.env.GEMINI_MODEL || process.env.GROQ_MODEL || 'gemini-2.5-flash-lite'),
 
   // Crawler
   CRAWLER_MAX_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_CONFIG.CRAWLER_MAX_CONCURRENCY),
@@ -65,6 +84,9 @@ const envSchema = z.object({
   // Storage Budget
   QDRANT_STORAGE_BUDGET_BYTES: z.coerce.number().int().positive().default(DEFAULT_CONFIG.QDRANT_STORAGE_BUDGET_BYTES),
   QDRANT_STORAGE_STOP_THRESHOLD_PERCENT: z.coerce.number().min(1).max(100).default(DEFAULT_CONFIG.QDRANT_STORAGE_STOP_THRESHOLD_PERCENT),
+
+  // Brandfetch API Key (for server-side Brand API)
+  BRANDFETCH_API_KEY: z.string().optional().default(''),
 
   // Chunking
   CHUNK_SIZE: z.coerce.number().int().positive().default(DEFAULT_CONFIG.CHUNK_SIZE),

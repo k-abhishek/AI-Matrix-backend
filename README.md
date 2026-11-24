@@ -191,8 +191,8 @@ Configuration is validated on startup via **Zod** (`src/config/env.ts`). Create 
 cp .env.example .env
 ```
 
-| Variable | Type | Default | Description |
-|---|---|---|---|
+| Variable | Type | Description |
+|---|---|---|
 | `NODE_ENV` | String | `development` | Environment mode (`development`, `production`, `test`) |
 | `PORT` | Number | `4000` | Application server port |
 | `LOG_LEVEL` | String | `info` | Pino log level (`debug`, `info`, `warn`, `error`) |

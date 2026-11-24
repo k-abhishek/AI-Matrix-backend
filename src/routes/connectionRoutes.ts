@@ -63,7 +63,7 @@ const connectionRoutes: FastifyPluginAsync = async (fastify) => {
           type: 'object',
           required: ['name', 'authType'],
           properties: {
-            connectorDefinitionId: { type: 'string', format: 'uuid' },
+            connectorDefinitionId: { type: 'string' },
             connectorKey: { type: 'string' },
             name: { type: 'string', minLength: 1 },
             authType: {
@@ -97,6 +97,34 @@ const connectionRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     connectionController.create.bind(connectionController)
+  );
+
+  /**
+   * POST /api/connections/connect
+   * Unified connection endpoint for token/API-key/basic auth (with rollback) and OAuth2.
+   */
+  fastify.post(
+    '/connect',
+    {
+      schema: {
+        tags: ['Connections'],
+        summary: 'Unified connect endpoint with test, discovery, and rollback',
+        description: 'Atomically creates, authenticates, tests, and discovers tools for a connection. Returns { authUrl } for OAuth2.',
+        body: {
+          type: 'object',
+          required: ['connectorKey', 'authType'],
+          properties: {
+            connectorKey: { type: 'string' },
+            name: { type: 'string' },
+            authType: { type: 'string' },
+            baseUrl: { type: 'string' },
+            mcpTransport: { type: 'string' },
+            credentials: { type: 'object', additionalProperties: true },
+          },
+        },
+      },
+    },
+    connectionController.connect.bind(connectionController)
   );
 
   /**

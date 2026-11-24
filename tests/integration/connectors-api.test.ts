@@ -32,7 +32,7 @@ describe('Connector Platform API Endpoints (Phase 1)', () => {
       expect(json.data.length).toBeGreaterThanOrEqual(5);
 
       const keys = json.data.map((c: any) => c.key);
-      expect(keys).toContain('gmail');
+      expect(keys).toContain('google-workspace');
       expect(keys).toContain('slack');
       expect(keys).toContain('github');
       expect(keys).toContain('mcp-server');
@@ -40,7 +40,8 @@ describe('Connector Platform API Endpoints (Phase 1)', () => {
     });
 
     it('filters catalog by connector type', async () => {
-      const response = await app.inject({
+      // MCP type filter
+      const mcpResponse = await app.inject({
         method: 'GET',
         url: '/api/connectors/catalog?type=MCP',
         headers: {
@@ -49,14 +50,31 @@ describe('Connector Platform API Endpoints (Phase 1)', () => {
         },
       });
 
-      expect(response.statusCode).toBe(200);
-      const json = response.json();
-      expect(json.success).toBe(true);
-      expect(json.data.length).toBeGreaterThanOrEqual(1);
-      const keys = json.data.map((c: any) => c.key);
-      expect(keys).toContain('mcp-server');
-      expect(keys).toContain('gmail');
-      expect(keys).toContain('slack');
+      expect(mcpResponse.statusCode).toBe(200);
+      const mcpJson = mcpResponse.json();
+      expect(mcpJson.success).toBe(true);
+      expect(mcpJson.data.length).toBeGreaterThanOrEqual(1);
+      const mcpKeys = mcpJson.data.map((c: any) => c.key);
+      expect(mcpKeys).toContain('mcp-server');
+
+      // Native type filter: gmail and slack are now NATIVE adapters
+      const nativeResponse = await app.inject({
+        method: 'GET',
+        url: '/api/connectors/catalog?type=NATIVE',
+        headers: {
+          'x-test-bypass': 'true',
+          'x-test-user-id': 'test_user_phase1',
+        },
+      });
+
+      expect(nativeResponse.statusCode).toBe(200);
+      const nativeJson = nativeResponse.json();
+      expect(nativeJson.success).toBe(true);
+      const nativeKeys = nativeJson.data.map((c: any) => c.key);
+      expect(nativeKeys).toContain('google-workspace');
+      expect(nativeKeys).toContain('slack');
+      expect(nativeKeys).toContain('github');
+      expect(nativeKeys).toContain('notion');
     });
 
     it('GET /api/connectors/catalog/:key returns connector details', async () => {

@@ -62,13 +62,29 @@ describe('OAuth & Auth Lifecycle Endpoints (Phase 3)', () => {
   });
 
   describe('GET /api/oauth/callback', () => {
-    it('rejects missing code or state with 400', async () => {
+    it('redirects browser on missing code or state with error code', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/api/oauth/callback?state=only_state',
       });
 
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toContain('status=error');
+      expect(response.headers.location).toContain('code=INVALID_REQUEST');
+    });
+
+    it('returns 400 JSON when client accepts application/json on missing code or state', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/oauth/callback?state=only_state',
+        headers: {
+          accept: 'application/json',
+        },
+      });
+
       expect(response.statusCode).toBe(400);
+      const json = response.json();
+      expect(json.error.code).toBe('INVALID_REQUEST');
     });
 
     it('exchanges code for tokens and redirects or returns JSON response', async () => {

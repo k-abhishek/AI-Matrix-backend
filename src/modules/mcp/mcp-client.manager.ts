@@ -59,6 +59,13 @@ export class McpClientManager {
       throw new NotFoundError(`Connector connection '${connectionId}' not found`);
     }
 
+    if (connection.connectorDefinition?.type !== 'MCP') {
+      throw new AppError(
+        `Cannot create MCP session for non-MCP connection '${connection.name}' (${connection.connectorDefinition?.type})`,
+        400
+      );
+    }
+
     // Determine target URL: prefer connection.baseUrl, then definition.serverUrl
     const rawUrl = connection.baseUrl || (connection.connectorDefinition?.defaultConfig as any)?.serverUrl;
     if (!rawUrl) {
@@ -137,13 +144,15 @@ export class McpClientManager {
       await this.closeSession(connectionId);
       logger.error(`[McpClientManager] Failed to connect MCP client to ${rawUrl}:`, err);
 
-      await prisma.connectorConnection.update({
-        where: { id: connectionId },
-        data: {
-          status: 'ERROR',
-          lastErrorMessage: err.message || 'Failed to establish MCP handshake',
-        },
-      }).catch(() => {});
+      if (connection.connectorDefinition?.type === 'MCP') {
+        await prisma.connectorConnection.update({
+          where: { id: connectionId },
+          data: {
+            status: 'ERROR',
+            lastErrorMessage: err.message || 'Failed to establish MCP handshake',
+          },
+        }).catch(() => {});
+      }
 
       throw new AppError(`MCP handshake failed with server '${rawUrl}': ${err.message}`, 502);
     }

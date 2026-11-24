@@ -36,7 +36,15 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
   SLACK_CLIENT_ID: z.string().optional().default(''),
   SLACK_CLIENT_SECRET: z.string().optional().default(''),
-  OAUTH_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:3000/api/oauth/callback'),
+  GITHUB_CLIENT_ID: z.string().optional().default(''),
+  GITHUB_CLIENT_SECRET: z.string().optional().default(''),
+  NOTION_CLIENT_ID: z.string().optional().default(''),
+  NOTION_CLIENT_SECRET: z.string().optional().default(''),
+  JIRA_CLIENT_ID: z.string().optional().default(''),
+  JIRA_CLIENT_SECRET: z.string().optional().default(''),
+  CLICKUP_CLIENT_ID: z.string().optional().default(''),
+  CLICKUP_CLIENT_SECRET: z.string().optional().default(''),
+  OAUTH_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:4000/api/oauth/callback'),
   FRONTEND_REDIRECT_BASE_URL: z.string().optional().default('http://localhost:5173/connector'),
 
   // MongoDB / Mongoose

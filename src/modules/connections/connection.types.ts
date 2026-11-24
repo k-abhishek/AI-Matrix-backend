@@ -58,3 +58,18 @@ export interface ConnectionResponseDTO {
   updatedAt: Date;
   toolsCount?: number;
 }
+
+export interface ConnectRequestDTO {
+  connectorKey: string;
+  name?: string;
+  authType: ConnectionAuthType;
+  baseUrl?: string;
+  mcpTransport?: McpTransportType;
+  credentials?: Record<string, any>;
+}
+
+export type ConnectInputDTO = ConnectRequestDTO;
+
+export type ConnectResultDTO =
+  | { authUrl: string }
+  | { connection: ConnectionResponseDTO; toolsCount: number };

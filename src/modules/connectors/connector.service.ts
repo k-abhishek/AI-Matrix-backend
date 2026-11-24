@@ -1,12 +1,56 @@
 import prisma from '../../lib/prisma';
-import connectorRegistry, { SYSTEM_CONNECTOR_SEEDS } from './connector.registry';
+import connectorRegistry, { SYSTEM_CONNECTOR_SEEDS, SystemConnectorSeed } from './connector.registry';
 import { ConnectorDefinitionDTO, CatalogFilterQuery } from './connector.types';
 import { NotFoundError } from '../../lib/errors';
 
 export class ConnectorService {
   /**
+   * Enriches a database or seed record with dynamic catalog metadata.
+   */
+  private enrichDefinition(
+    def: {
+      id: string;
+      key: string;
+      name: string;
+      description: string;
+      type: any;
+      supportedAuth: any[];
+      docUrl?: string | null;
+      isSystem?: boolean;
+      defaultConfig?: any;
+      createdAt?: Date;
+      updatedAt?: Date;
+    },
+    seed?: SystemConnectorSeed
+  ): ConnectorDefinitionDTO {
+    const s = seed || connectorRegistry.getSeedByKey(def.key);
+
+    return {
+      id: def.id,
+      key: def.key,
+      name: def.name,
+      description: def.description,
+      type: def.type,
+      supportedAuth: def.supportedAuth,
+      recommendedAuth: s?.recommendedAuth || (def.supportedAuth?.[0] as string) || 'BEARER_TOKEN',
+      oauthAvailable: connectorRegistry.computeOAuthAvailable(def.key),
+      requiresBaseUrl: s?.requiresBaseUrl ?? (def.type === 'MCP' || def.type === 'CUSTOM_REST'),
+      baseUrlLabel: s?.baseUrlLabel,
+      baseUrlPlaceholder: s?.baseUrlPlaceholder,
+      authFields: s?.authFields || {},
+      iconKey: s?.iconKey || def.key,
+      docUrl: def.docUrl || s?.docUrl || null,
+      isAvailable: s?.isAvailable ?? true,
+      isSystem: def.isSystem ?? true,
+      defaultConfig: def.defaultConfig || null,
+      createdAt: def.createdAt,
+      updatedAt: def.updatedAt,
+    };
+  }
+
+  /**
    * Retrieves the catalog of available connector definitions.
-   * If PostgreSQL is accessible, reads from database. Otherwise, falls back to in-memory seeds.
+   * If PostgreSQL is accessible, reads from database. Otherwise, falls back to in-memory seeds in development.
    */
   async listCatalog(filter?: CatalogFilterQuery): Promise<ConnectorDefinitionDTO[]> {
     try {
@@ -32,10 +76,13 @@ export class ConnectorService {
       });
 
       if (definitions.length > 0) {
-        return definitions as ConnectorDefinitionDTO[];
+        return definitions.map((d) => this.enrichDefinition(d));
       }
-    } catch {
-      // Fallback to in-memory registry
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'production') {
+        throw err;
+      }
+      // Fallback to in-memory registry allowed only in development/test
     }
 
     let seeds = connectorRegistry.getSeeds();
@@ -48,20 +95,24 @@ export class ConnectorService {
     }
 
     const now = new Date();
-    return seeds.map((s) => ({
-      id: `seed_${s.key}`,
-      key: s.key,
-      name: s.name,
-      description: s.description,
-      type: s.type,
-      supportedAuth: s.supportedAuth,
-      iconUrl: s.iconUrl || null,
-      docUrl: s.docUrl || null,
-      isSystem: true,
-      defaultConfig: s.defaultConfig || null,
-      createdAt: now,
-      updatedAt: now,
-    }));
+    return seeds.map((s) =>
+      this.enrichDefinition(
+        {
+          id: connectorRegistry.getStableUuid(s.key),
+          key: s.key,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+          supportedAuth: s.supportedAuth,
+          docUrl: s.docUrl || null,
+          isSystem: true,
+          defaultConfig: s.defaultConfig || null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        s
+      )
+    );
   }
 
   /**
@@ -70,13 +121,16 @@ export class ConnectorService {
   async getDefinitionByKey(key: string): Promise<ConnectorDefinitionDTO> {
     try {
       const def = await prisma.connectorDefinition.findUnique({
-        where: { key },
+        where: { key: key.toLowerCase() },
       });
       if (def) {
-        return def as ConnectorDefinitionDTO;
+        return this.enrichDefinition(def);
       }
-    } catch {
-      // Fall through to memory
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'production') {
+        throw err;
+      }
+      // Fall through to memory in dev
     }
 
     const seed = connectorRegistry.getSeedByKey(key);
@@ -85,20 +139,22 @@ export class ConnectorService {
     }
 
     const now = new Date();
-    return {
-      id: `seed_${seed.key}`,
-      key: seed.key,
-      name: seed.name,
-      description: seed.description,
-      type: seed.type,
-      supportedAuth: seed.supportedAuth,
-      iconUrl: seed.iconUrl || null,
-      docUrl: seed.docUrl || null,
-      isSystem: true,
-      defaultConfig: seed.defaultConfig || null,
-      createdAt: now,
-      updatedAt: now,
-    };
+    return this.enrichDefinition(
+      {
+        id: connectorRegistry.getStableUuid(seed.key),
+        key: seed.key,
+        name: seed.name,
+        description: seed.description,
+        type: seed.type,
+        supportedAuth: seed.supportedAuth,
+        docUrl: seed.docUrl || null,
+        isSystem: true,
+        defaultConfig: seed.defaultConfig || null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      seed
+    );
   }
 }
 

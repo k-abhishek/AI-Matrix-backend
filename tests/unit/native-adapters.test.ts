@@ -181,6 +181,49 @@ describe('Native Adapters & Fallback Runtime', () => {
       expect(tools.map((t) => t.name)).toEqual(['list_messages', 'get_message', 'send_email']);
     });
 
+    it('dynamically filters tools by granted OAuth scopes', async () => {
+      const readOnlyTools = await gmailNativeAdapter.discoverTools({
+        id: 'conn-gw-readonly',
+        name: 'Read-only Gmail',
+        workspaceId: 'ws-1',
+        userId: 'u-1',
+        connectorKey: 'google-workspace',
+        authType: 'OAUTH2_AUTHORIZATION_CODE',
+        credentials: {
+          accessToken: 'mock_token',
+          scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+        },
+      });
+      expect(readOnlyTools.map((t) => t.name)).toEqual(['list_messages', 'get_message']);
+
+      const fullWorkspaceTools = await gmailNativeAdapter.discoverTools({
+        id: 'conn-gw-full',
+        name: 'Google Workspace',
+        workspaceId: 'ws-1',
+        userId: 'u-1',
+        connectorKey: 'google-workspace',
+        authType: 'OAUTH2_AUTHORIZATION_CODE',
+        credentials: {
+          accessToken: 'mock_token',
+          scopes: [
+            'https://www.googleapis.com/auth/gmail.modify',
+            'https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/documents',
+          ],
+        },
+      });
+      expect(fullWorkspaceTools.map((t) => t.name)).toEqual([
+        'list_messages',
+        'get_message',
+        'send_email',
+        'list_calendar_events',
+        'create_calendar_event',
+        'list_drive_files',
+        'get_google_doc',
+      ]);
+    });
+
     it('handles test connection in mock mode', async () => {
       const result = await gmailNativeAdapter.testConnection({
         id: 'conn-gmail-1',

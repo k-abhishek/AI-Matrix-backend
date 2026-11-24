@@ -2,8 +2,35 @@ import { FastifyPluginAsync } from 'fastify';
 import connectorController from '../modules/connectors/connector.controller';
 import { requireAuth } from '../middleware/auth';
 
+const catalogAuthFieldSchema = {
+  type: 'object',
+  required: ['name', 'label', 'type', 'required'],
+  properties: {
+    name: { type: 'string' },
+    label: { type: 'string' },
+    type: { type: 'string', enum: ['text', 'password'] },
+    placeholder: { type: 'string' },
+    helpText: { type: 'string' },
+    required: { type: 'boolean' },
+  },
+};
+
 const connectorDefinitionSchema = {
   type: 'object',
+  required: [
+    'id',
+    'key',
+    'name',
+    'description',
+    'type',
+    'supportedAuth',
+    'recommendedAuth',
+    'oauthAvailable',
+    'requiresBaseUrl',
+    'authFields',
+    'iconKey',
+    'isAvailable',
+  ],
   properties: {
     id: { type: 'string' },
     key: { type: 'string' },
@@ -14,8 +41,21 @@ const connectorDefinitionSchema = {
       type: 'array',
       items: { type: 'string' },
     },
-    iconUrl: { type: 'string', nullable: true },
+    recommendedAuth: { type: 'string' },
+    oauthAvailable: { type: 'boolean' },
+    requiresBaseUrl: { type: 'boolean' },
+    baseUrlLabel: { type: 'string', nullable: true },
+    baseUrlPlaceholder: { type: 'string', nullable: true },
+    authFields: {
+      type: 'object',
+      additionalProperties: {
+        type: 'array',
+        items: catalogAuthFieldSchema,
+      },
+    },
+    iconKey: { type: 'string' },
     docUrl: { type: 'string', nullable: true },
+    isAvailable: { type: 'boolean' },
     isSystem: { type: 'boolean' },
     defaultConfig: { type: 'object', additionalProperties: true, nullable: true },
     createdAt: { type: 'string', format: 'date-time' },

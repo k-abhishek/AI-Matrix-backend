@@ -10,8 +10,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
+    "db:seed": "ts-node prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@clerk/fastify": "^3.1.105",

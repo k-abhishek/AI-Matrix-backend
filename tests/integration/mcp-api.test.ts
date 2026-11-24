@@ -45,7 +45,7 @@ describe('MCP API Endpoints (Phase 2)', () => {
       expect(json.success).toBe(false);
     });
 
-    it('rejects private and loopback URLs with 403 Forbidden (SSRF Guard)', async () => {
+    it('rejects private and loopback URLs with 400 BASE_URL_BLOCKED (SSRF Guard)', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/mcp/discover',
@@ -58,7 +58,8 @@ describe('MCP API Endpoints (Phase 2)', () => {
         },
       });
 
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(400);
+      expect(response.json().message).toContain('private');
     });
 
     it('probes a remote MCP server and returns discovered capabilities and tools', async () => {

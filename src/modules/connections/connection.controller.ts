@@ -4,7 +4,7 @@ import connectionService from './connection.service';
 import { AuthenticatedRequest } from '../../middleware/auth';
 
 export const createConnectionSchema = z.object({
-  connectorDefinitionId: z.string().uuid().optional(),
+  connectorDefinitionId: z.string().optional(),
   connectorKey: z.string().min(1).optional(),
   name: z.string().min(1, 'Connection name is required'),
   authType: z.enum([
@@ -50,6 +50,55 @@ export class ConnectionController {
       success: true,
       data: connection,
     });
+  }
+
+  async connect(req: FastifyRequest, reply: FastifyReply) {
+    try {
+      const workspaceId = this.getWorkspaceId(req);
+      const userId = (req as AuthenticatedRequest).userId || 'default_user';
+      const body = req.body as any;
+
+      if (!body || typeof body !== 'object') {
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Request body must be a valid JSON object',
+          },
+        });
+      }
+
+      const result = await connectionService.connect(workspaceId, userId, body);
+
+      if ('authUrl' in result) {
+        return reply.status(200).send({ authUrl: result.authUrl });
+      }
+
+      return reply.status(201).send({
+        connection: result.connection,
+        toolsCount: result.toolsCount,
+      });
+    } catch (err: any) {
+      let code = (err as any).code || 'VALIDATION_ERROR';
+      const validCodes = [
+        'VALIDATION_ERROR',
+        'INVALID_CREDENTIALS',
+        'BASE_URL_BLOCKED',
+        'BASE_URL_UNREACHABLE',
+        'OAUTH_NOT_CONFIGURED',
+        'DISCOVERY_FAILED',
+      ];
+      if (!validCodes.includes(code)) {
+        code = 'VALIDATION_ERROR';
+      }
+
+      const statusCode = code === 'INVALID_CREDENTIALS' ? 401 : 400;
+      return reply.status(statusCode).send({
+        error: {
+          code,
+          message: err.message || 'An error occurred while connecting',
+        },
+      });
+    }
   }
 
   async list(req: FastifyRequest, reply: FastifyReply) {

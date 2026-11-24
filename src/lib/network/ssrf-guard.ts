@@ -1,21 +1,45 @@
 import dns from 'dns';
 import net from 'net';
-import { BadRequestError, ForbiddenError } from '../errors';
+import { BaseUrlBlockedError, BaseUrlUnreachableError, ForbiddenError } from '../errors';
 import logger from '../logger';
 
 export interface SsrfValidationResult {
   isValid: boolean;
   reason?: string;
   resolvedIps?: string[];
+  isDnsFailure?: boolean;
 }
 
 export class SsrfGuard {
   private readonly blockedHostnames = new Set([
-    'localhost',
     'metadata.google.internal',
     'metadata.goog',
     'instance-data',
   ]);
+
+  private isLoopbackAllowed(): boolean {
+    return (
+      process.env.NODE_ENV === 'development' ||
+      process.env.ALLOW_LOCAL_CONNECTORS === 'true'
+    );
+  }
+
+  isLoopbackIpv4(ip: string): boolean {
+    const parts = ip.split('.').map((p) => parseInt(p, 10));
+    return parts.length === 4 && parts[0] === 127;
+  }
+
+  isLoopbackIpv6(ip: string): boolean {
+    const normalized = ip.toLowerCase().trim();
+    if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
+    if (normalized.startsWith('::ffff:')) {
+      const remainder = normalized.replace('::ffff:', '');
+      if (net.isIPv4(remainder)) {
+        return this.isLoopbackIpv4(remainder);
+      }
+    }
+    return false;
+  }
 
   /**
    * Checks whether a given IPv4 string falls into private, loopback, link-local, or reserved ranges.
@@ -28,6 +52,14 @@ export class SsrfGuard {
 
     const [a, b, c] = parts;
 
+    // 127.0.0.0/8 (Loopback RFC 1122)
+    if (a === 127) {
+      if (this.isLoopbackAllowed()) {
+        return false;
+      }
+      return true;
+    }
+
     // 0.0.0.0/8 (Current network / default route)
     if (a === 0) return true;
 
@@ -36,9 +68,6 @@ export class SsrfGuard {
 
     // 100.64.0.0/10 (Shared Address Space / CGNAT RFC 6598)
     if (a === 100 && b >= 64 && b <= 127) return true;
-
-    // 127.0.0.0/8 (Loopback RFC 1122)
-    if (a === 127) return true;
 
     // 169.254.0.0/16 (Link-Local RFC 3927 & AWS/GCP/Azure Metadata)
     if (a === 169 && b === 254) return true;
@@ -80,7 +109,12 @@ export class SsrfGuard {
     const normalized = ip.toLowerCase().trim();
 
     // Loopback
-    if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
+    if (this.isLoopbackIpv6(normalized)) {
+      if (this.isLoopbackAllowed()) {
+        return false;
+      }
+      return true;
+    }
 
     // Unspecified
     if (normalized === '::' || normalized === '0:0:0:0:0:0:0:0') return true;
@@ -93,7 +127,7 @@ export class SsrfGuard {
       }
     }
 
-    // Unique Local Address (fc00::/7 -> fc00 to fdff)
+    // Unique Local Address (fc00::/7 -> fc00 to fdff, including fd00::/8)
     if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
 
     // Link-Local (fe80::/10 -> fe80 to febf)
@@ -148,8 +182,20 @@ export class SsrfGuard {
 
     const hostname = parsed.hostname.toLowerCase().trim();
 
+    // Check localhost
+    const isLocalhost = hostname === 'localhost' || hostname.endsWith('.localhost');
+    if (isLocalhost) {
+      if (!this.isLoopbackAllowed()) {
+        return {
+          isValid: false,
+          reason: `Target hostname '${hostname}' is forbidden by SSRF protection policy.`,
+        };
+      }
+      return { isValid: true, resolvedIps: ['127.0.0.1'] };
+    }
+
     // Check blocked hostnames
-    if (this.blockedHostnames.has(hostname) || hostname.endsWith('.localhost')) {
+    if (this.blockedHostnames.has(hostname)) {
       return {
         isValid: false,
         reason: `Target hostname '${hostname}' is forbidden by SSRF protection policy.`,
@@ -172,7 +218,7 @@ export class SsrfGuard {
     try {
       const records = await dns.promises.lookup(hostname, { all: true });
       if (!records || records.length === 0) {
-        return { isValid: false, reason: `Could not resolve hostname '${hostname}'.` };
+        return { isValid: false, reason: `Could not resolve hostname '${hostname}'.`, isDnsFailure: true };
       }
 
       const resolvedIps = records.map((r) => r.address);
@@ -195,19 +241,67 @@ export class SsrfGuard {
       return {
         isValid: false,
         reason: `DNS lookup failed for '${hostname}': ${err.message}`,
+        isDnsFailure: true,
       };
     }
   }
 
   /**
-   * Asserts that a URL is safe. Throws ForbiddenError or BadRequestError if blocked.
+   * Asserts that a URL is safe. Throws BaseUrlUnreachableError or BaseUrlBlockedError if blocked.
    */
   async assertSafeUrl(rawUrl: string): Promise<string> {
     const result = await this.validateUrl(rawUrl);
     if (!result.isValid) {
-      throw new ForbiddenError(result.reason || 'Target URL blocked by SSRF protection policy');
+      if (result.isDnsFailure) {
+        throw new BaseUrlUnreachableError(
+          result.reason || 'Target URL unreachable: DNS lookup failed'
+        );
+      }
+      throw new BaseUrlBlockedError(
+        result.reason || 'Target URL blocked by SSRF protection policy'
+      );
     }
     return rawUrl.trim();
+  }
+
+  /**
+   * Safely fetches a URL, resolving DNS and re-validating on every redirect.
+   */
+  async safeFetch(
+    rawUrl: string,
+    options?: RequestInit & { maxRedirects?: number }
+  ): Promise<Response> {
+    const maxRedirects = options?.maxRedirects ?? 5;
+    let currentUrl = rawUrl;
+    let redirectCount = 0;
+
+    while (redirectCount <= maxRedirects) {
+      await this.assertSafeUrl(currentUrl);
+
+      const fetchOptions: RequestInit = {
+        ...options,
+        redirect: 'manual',
+      };
+
+      const response = await fetch(currentUrl, fetchOptions);
+
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location');
+        if (!location) {
+          return response;
+        }
+
+        const nextUrl = new URL(location, currentUrl).toString();
+        await this.assertSafeUrl(nextUrl);
+        currentUrl = nextUrl;
+        redirectCount++;
+        continue;
+      }
+
+      return response;
+    }
+
+    throw new BaseUrlBlockedError('Too many redirects in connection request');
   }
 
   /**

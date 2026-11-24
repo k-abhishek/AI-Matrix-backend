@@ -1,7 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import authManager from '../modules/connections/auth.manager';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
-import { BadRequestError } from '../lib/errors';
+import env from '../config/env';
+import logger from '../lib/logger';
 
 /**
  * Fastify route plugin for OAuth 2.0 and connection authentication lifecycle.
@@ -121,29 +122,73 @@ const oauthRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      const frontendBase = env.FRONTEND_REDIRECT_BASE_URL.endsWith('/connector')
+        ? env.FRONTEND_REDIRECT_BASE_URL
+        : `${env.FRONTEND_REDIRECT_BASE_URL.replace(/\/+$/, '')}/connector`;
+
       const { code, state, error, error_description } = request.query;
 
-      if (error) {
-        throw new BadRequestError(`OAuth provider error: ${error_description || error}`);
+      try {
+        if (error) {
+          logger.warn(`[OAuthRoutes] Provider returned error: ${error} - ${error_description}`);
+          const failureUrl = `${frontendBase}?tab=connections&status=error&code=PROVIDER_DENIED`;
+          return reply.redirect(failureUrl);
+        }
+
+        if (!code || !state) {
+          const failureUrl = `${frontendBase}?tab=connections&status=error&code=INVALID_REQUEST`;
+          const acceptHeader = request.headers['accept'] || '';
+          if (acceptHeader.includes('application/json') && !acceptHeader.includes('text/html')) {
+            return reply.status(400).send({
+              error: {
+                code: 'INVALID_REQUEST',
+                message: 'OAuth callback requires code and state parameters',
+              },
+            });
+          }
+          return reply.redirect(failureUrl);
+        }
+
+        const result = await authManager.handleOAuthCallback(code, state);
+
+        const successUrl = `${frontendBase}?tab=connections&status=success&connectionId=${encodeURIComponent(result.connectionId)}`;
+
+        const acceptHeader = request.headers['accept'] || '';
+        if (acceptHeader.includes('application/json') && !acceptHeader.includes('text/html')) {
+          return reply.send({
+            success: true,
+            connectionId: result.connectionId,
+            status: result.status,
+            redirectUrl: successUrl,
+          });
+        }
+
+        return reply.redirect(successUrl);
+      } catch (err: any) {
+        logger.error(`[OAuthRoutes] Callback failed: ${err.message}`, err);
+        let errorCode = 'OAUTH_FAILED';
+        if (err.message?.includes('expired')) {
+          errorCode = 'EXPIRED_STATE';
+        } else if (err.message?.includes('Invalid') || err.message?.includes('state')) {
+          errorCode = 'INVALID_STATE';
+        } else if (err.message?.includes('exchange')) {
+          errorCode = 'TOKEN_EXCHANGE_FAILED';
+        }
+
+        const failureUrl = `${frontendBase}?tab=connections&status=error&code=${encodeURIComponent(errorCode)}`;
+
+        const acceptHeader = request.headers['accept'] || '';
+        if (acceptHeader.includes('application/json') && !acceptHeader.includes('text/html')) {
+          return reply.status(400).send({
+            error: {
+              code: errorCode,
+              message: 'OAuth callback processing failed',
+            },
+          });
+        }
+
+        return reply.redirect(failureUrl);
       }
-
-      if (!code || !state) {
-        throw new BadRequestError('OAuth callback requires code and state parameters');
-      }
-
-      const result = await authManager.handleOAuthCallback(code, state);
-
-      // If client requests JSON, return it; otherwise redirect to frontend
-      const acceptHeader = request.headers['accept'] || '';
-      if (acceptHeader.includes('application/json') && !acceptHeader.includes('text/html')) {
-        return reply.send({
-          success: true,
-          connectionId: result.connectionId,
-          status: result.status,
-        });
-      }
-
-      return reply.redirect(result.redirectUrl);
     }
   );
 };

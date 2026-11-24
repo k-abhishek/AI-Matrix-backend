@@ -4,6 +4,7 @@ import notionNativeAdapter from './notion.native-adapter';
 import clickupNativeAdapter from './clickup.native-adapter';
 import slackNativeAdapter from './slack.native-adapter';
 import gmailNativeAdapter from './gmail.native-adapter';
+import githubNativeAdapter from './github.native-adapter';
 
 export class NativeAdapterRegistry {
   private adapters = new Map<string, BaseConnectorAdapter>();
@@ -14,6 +15,8 @@ export class NativeAdapterRegistry {
     this.register(clickupNativeAdapter.connectorKey, clickupNativeAdapter);
     this.register(slackNativeAdapter.connectorKey, slackNativeAdapter);
     this.register(gmailNativeAdapter.connectorKey, gmailNativeAdapter);
+    this.register('google-workspace', gmailNativeAdapter);
+    this.register(githubNativeAdapter.connectorKey, githubNativeAdapter);
   }
 
   register(key: string, adapter: BaseConnectorAdapter) {

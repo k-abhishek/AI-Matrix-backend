@@ -53,6 +53,24 @@ export class SSRError extends AppError {
   }
 }
 
+export class BaseUrlBlockedError extends ForbiddenError {
+  public readonly code = 'BASE_URL_BLOCKED';
+  constructor(message = 'Target URL blocked by security policy: address belongs to a restricted subnet or is forbidden', details?: unknown) {
+    super(message, details);
+    this.name = 'BaseUrlBlockedError';
+    (this as any).statusCode = 400;
+  }
+}
+
+export class BaseUrlUnreachableError extends BadRequestError {
+  public readonly code = 'BASE_URL_UNREACHABLE';
+  constructor(message = 'Target URL unreachable: DNS lookup failed', details?: unknown) {
+    super(message, details);
+    this.name = 'BaseUrlUnreachableError';
+    (this as any).statusCode = 400;
+  }
+}
+
 export class StorageBudgetExceededError extends AppError {
   constructor(message = 'Storage budget threshold reached', details?: unknown) {
     super(message, 507, details); // 507 Insufficient Storage

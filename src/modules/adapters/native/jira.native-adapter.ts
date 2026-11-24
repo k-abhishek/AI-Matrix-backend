@@ -17,15 +17,26 @@ export class JiraNativeAdapter extends BaseNativeAdapter {
       const basic = Buffer.from(`${creds.username}:${creds.password}`).toString('base64');
       return `Basic ${basic}`;
     }
+    if (creds.email && creds.apiToken) {
+      const basic = Buffer.from(`${creds.email}:${creds.apiToken}`).toString('base64');
+      return `Basic ${basic}`;
+    }
     const token = creds.accessToken || creds.apiKey || creds.token;
     if (token) {
-      if (token.startsWith('Basic ')) return token;
+      if (token.startsWith('Basic ') || token.startsWith('Bearer ')) return token;
       return `Bearer ${token}`;
     }
     return '';
   }
 
-  private resolveBaseUrl(context: ConnectorConnectionContext | ToolExecutionContext): string {
+  private resolveBaseUrl(
+    context: ConnectorConnectionContext | ToolExecutionContext,
+    creds?: Record<string, any>
+  ): string {
+    const cloudId = creds?.cloudId || (context as any).config?.cloudId;
+    if (cloudId) {
+      return `https://api.atlassian.com/ex/jira/${cloudId}`;
+    }
     const raw = context.baseUrl || context.config?.baseUrl || 'https://api.atlassian.com';
     return raw.replace(/\/+$/, '');
   }
@@ -55,7 +66,7 @@ export class JiraNativeAdapter extends BaseNativeAdapter {
     }
 
     try {
-      const baseUrl = this.resolveBaseUrl(context);
+      const baseUrl = this.resolveBaseUrl(context, creds);
       const res = await fetch(`${baseUrl}/rest/api/3/myself`, {
         method: 'GET',
         headers: {
@@ -177,7 +188,7 @@ export class JiraNativeAdapter extends BaseNativeAdapter {
     const startTime = Date.now();
     const creds = await this.resolveCredentials(context);
     const authHeader = this.getAuthHeader(creds);
-    const baseUrl = this.resolveBaseUrl(context);
+    const baseUrl = this.resolveBaseUrl(context, creds);
 
     if (process.env.NODE_ENV === 'test' && (creds.username?.includes('mock') || creds.accessToken?.includes('mock'))) {
       return {

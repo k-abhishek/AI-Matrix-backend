@@ -9,6 +9,7 @@ describe('SearchService Unit Tests', () => {
   beforeEach(() => {
     mockQdrantService = {
       similaritySearchWithScore: vi.fn(),
+      similaritySearchWithScoreAcrossCollections: vi.fn(),
       ensureCollection: vi.fn(),
     };
     searchService = new SearchService(mockQdrantService);
@@ -42,8 +43,8 @@ describe('SearchService Unit Tests', () => {
       ],
     ];
 
-    it('enforces default scoreThreshold of 0.5 and paginates results', async () => {
-      mockQdrantService.similaritySearchWithScore.mockResolvedValue(dummyDocs);
+    it('enforces default scoreThreshold of 0.5 and paginates results across collections', async () => {
+      mockQdrantService.similaritySearchWithScoreAcrossCollections.mockResolvedValue(dummyDocs);
 
       const response = await searchService.search({
         query: 'crawlers and vectors',
@@ -51,7 +52,7 @@ describe('SearchService Unit Tests', () => {
         page: 1,
       });
 
-      expect(mockQdrantService.similaritySearchWithScore).toHaveBeenCalledWith(
+      expect(mockQdrantService.similaritySearchWithScoreAcrossCollections).toHaveBeenCalledWith(
         'crawlers and vectors',
         10
       );
@@ -70,7 +71,7 @@ describe('SearchService Unit Tests', () => {
     });
 
     it('handles pagination slicing correctly for page 2', async () => {
-      mockQdrantService.similaritySearchWithScore.mockResolvedValue(dummyDocs);
+      mockQdrantService.similaritySearchWithScoreAcrossCollections.mockResolvedValue(dummyDocs);
 
       const response = await searchService.search({
         query: 'crawlers',
@@ -86,7 +87,7 @@ describe('SearchService Unit Tests', () => {
     });
 
     it('handles empty results cleanly', async () => {
-      mockQdrantService.similaritySearchWithScore.mockResolvedValue([]);
+      mockQdrantService.similaritySearchWithScoreAcrossCollections.mockResolvedValue([]);
 
       const response = await searchService.search({
         query: 'unmatched query',
@@ -94,6 +95,24 @@ describe('SearchService Unit Tests', () => {
 
       expect(response.total).toBe(0);
       expect(response.results).toEqual([]);
+    });
+
+    it('scopes search to sanitized crawlerName collection when provided', async () => {
+      mockQdrantService.similaritySearchWithScore.mockResolvedValue(dummyDocs);
+
+      const response = await searchService.search({
+        query: 'crawlers',
+        crawlerName: 'My Docs Site!',
+        limit: 5,
+      });
+
+      expect(mockQdrantService.similaritySearchWithScore).toHaveBeenCalledWith(
+        'crawlers',
+        10,
+        undefined,
+        'my_docs_site'
+      );
+      expect(response.total).toBe(2);
     });
   });
 });

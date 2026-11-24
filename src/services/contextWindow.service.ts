@@ -278,15 +278,19 @@ Updated Summary:`;
     for (let i = 0; i < activeMessages.length; i++) {
       const msg = activeMessages[i];
       const isHistoricalTurn = i < lastActiveIdx;
+      const toolOutputBudget = isHistoricalTurn
+        ? DEFAULT_CONFIG.TOOL_OUTPUT_MAX_CHARS
+        : DEFAULT_CONFIG.TOOL_OUTPUT_MAX_CHARS * 2;
 
-      let msgContent = msg.content;
+      let msgContent = (msg.content || "").trim();
 
-      // For assistant messages with tool calls, format historical tool calls cleanly
+      // For assistant messages with tool calls, always compact tool outputs so
+      // unbounded raw payloads from previous turns don't bloat or break streaming
       if (msg.role === "assistant") {
         if (msg.toolCalls && msg.toolCalls.length > 0) {
-          const toolCalls = isHistoricalTurn
-            ? msg.toolCalls.map((tc) => this.compactToolCall(tc))
-            : msg.toolCalls;
+          const toolCalls = msg.toolCalls.map((tc) =>
+            this.compactToolCall(tc, toolOutputBudget),
+          );
 
           // Annotate content with compacted tool calls if needed
           const toolCallAnnotations = toolCalls
@@ -297,16 +301,47 @@ Updated Summary:`;
             msgContent = msgContent ? `${msgContent}\n\n${toolCallAnnotations}` : toolCallAnnotations;
           }
         }
-        assembledMessages.push(new AIMessage(msgContent));
+        if (msgContent !== "") {
+          assembledMessages.push(new AIMessage(msgContent));
+        }
       } else if (msg.role === "user") {
-        assembledMessages.push(new HumanMessage(msgContent));
+        if (msgContent !== "") {
+          assembledMessages.push(new HumanMessage(msgContent));
+        }
       } else if (msg.role === "system") {
-        assembledMessages.push(new SystemMessage(msgContent));
+        if (msgContent !== "") {
+          assembledMessages.push(new SystemMessage(msgContent));
+        }
       }
     }
 
     // 4. Current User Prompt
     assembledMessages.push(new HumanMessage(newPrompt));
+
+    // 5. Normalize adjacent same-role messages (e.g., if a prior turn failed mid-way)
+    // so providers like Gemini receive strictly alternating user/model turns.
+    const normalizedMessages: BaseMessage[] = [];
+    for (const msg of assembledMessages) {
+      const prev = normalizedMessages[normalizedMessages.length - 1];
+      const msgType = msg._getType();
+      const prevType = prev?._getType();
+
+      if (
+        prev &&
+        (msgType === "human" || msgType === "ai") &&
+        msgType === prevType &&
+        typeof prev.content === "string" &&
+        typeof msg.content === "string"
+      ) {
+        const mergedContent = `${prev.content}\n\n${msg.content}`.trim();
+        normalizedMessages[normalizedMessages.length - 1] =
+          msgType === "human"
+            ? new HumanMessage(mergedContent)
+            : new AIMessage(mergedContent);
+      } else {
+        normalizedMessages.push(msg);
+      }
+    }
 
     // Calculate total estimated prompt tokens
     const estimatedTotalTokens =
@@ -316,7 +351,7 @@ Updated Summary:`;
       this.estimateTokens(newPrompt);
 
     return {
-      messages: assembledMessages,
+      messages: normalizedMessages,
       activeMessageCount: activeMessages.length,
       summarizedMessageCount: summarizedCount,
       estimatedTotalTokens,

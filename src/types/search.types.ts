@@ -3,6 +3,8 @@ export interface SearchQueryInput {
   limit?: number;
   page?: number;
   scoreThreshold?: number;
+  collectionName?: string;
+  crawlerName?: string;
 }
 
 export interface SearchResultItemMetadata {

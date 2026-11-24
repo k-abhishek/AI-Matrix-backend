@@ -1,5 +1,6 @@
 import crawlerRepository, { CrawlerRepository } from './crawler.repository';
 import { validateSafeUrl } from '../../utils/url';
+import { sanitizeCollectionName } from '../../utils/hashing';
 import { NotFoundError, BadRequestError } from '../../lib/errors';
 import { Crawler } from '@prisma/client';
 import crawlService from '../../services/crawl.service';
@@ -12,6 +13,17 @@ export class CrawlerService {
   constructor(private repo: CrawlerRepository = crawlerRepository) {}
 
   async createCrawler(dto: CreateCrawlerDto): Promise<Crawler> {
+    const targetCollection = sanitizeCollectionName(dto.name);
+    const existingCrawlers = await this.repo.findAll();
+    const conflict = existingCrawlers.find(
+      (c) => sanitizeCollectionName(c.name) === targetCollection
+    );
+    if (conflict) {
+      throw new BadRequestError(
+        `A crawler with collection name '${targetCollection}' already exists ('${conflict.name}')`
+      );
+    }
+
     const parsedUrl = validateSafeUrl(dto.sitemapUrl);
     const origin = parsedUrl.origin;
     const hostname = parsedUrl.hostname;
@@ -61,6 +73,19 @@ export class CrawlerService {
       throw new BadRequestError('Cannot update crawler settings while a crawl is running');
     }
 
+    if (dto.name && sanitizeCollectionName(dto.name) !== sanitizeCollectionName(existing.name)) {
+      const targetCollection = sanitizeCollectionName(dto.name);
+      const existingCrawlers = await this.repo.findAll();
+      const conflict = existingCrawlers.find(
+        (c) => c.id !== id && sanitizeCollectionName(c.name) === targetCollection
+      );
+      if (conflict) {
+        throw new BadRequestError(
+          `A crawler with collection name '${targetCollection}' already exists ('${conflict.name}')`
+        );
+      }
+    }
+
     if (dto.sitemapUrl) {
       validateSafeUrl(dto.sitemapUrl);
     }
@@ -93,9 +118,10 @@ export class CrawlerService {
     }
 
     try {
-      await qdrantService.deleteByCrawlerId(id);
+      const collectionName = sanitizeCollectionName(crawler.name);
+      await qdrantService.deleteCollection(collectionName);
     } catch (err: any) {
-      logger.warn(`Could not clean up Qdrant vectors for crawler ${id}: ${err.message}`);
+      logger.warn(`Could not clean up Qdrant collection for crawler ${id}: ${err.message}`);
     }
 
     await this.repo.delete(id);
@@ -116,9 +142,10 @@ export class CrawlerService {
   }
 
   async getCrawlerMetrics(id: string): Promise<CrawlerMetricsResponse> {
-    await this.getCrawlerById(id);
+    const crawler = await this.getCrawlerById(id);
     const dbMetrics = await this.repo.getCrawlerMetrics(id);
-    const storageMetrics = await storageService.getStorageMetrics();
+    const collectionName = sanitizeCollectionName(crawler.name);
+    const storageMetrics = await storageService.getStorageMetrics(0, collectionName);
 
     return {
       ...dbMetrics,

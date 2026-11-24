@@ -1,5 +1,6 @@
 import qdrantService, { QdrantService } from "../../services/qdrant.service";
 import logger from "../../lib/logger";
+import { sanitizeCollectionName } from "../../utils/hashing";
 import {
   SearchQueryInput,
   SearchResponseData,
@@ -24,14 +25,24 @@ export class SearchService {
     // Calculate how many top candidates to fetch from vector store to satisfy pagination
     const fetchK = Math.min(100, Math.max(page * limit, 10));
 
+    const rawTarget = input.collectionName || input.crawlerName;
+    const targetCollection = rawTarget ? sanitizeCollectionName(rawTarget) : undefined;
+
     logger.debug(
-      `Executing semantic search: query="${trimmedQuery}", fetchK=${fetchK}, page=${page}, limit=${limit}, scoreThreshold=${scoreThreshold}`,
+      `Executing semantic search: query="${trimmedQuery}", collection=${targetCollection || 'ALL'}, fetchK=${fetchK}, page=${page}, limit=${limit}, scoreThreshold=${scoreThreshold}`,
     );
 
-    const scoredDocs = await this.qdrant.similaritySearchWithScore(
-      trimmedQuery,
-      fetchK,
-    );
+    const scoredDocs = targetCollection
+      ? await this.qdrant.similaritySearchWithScore(
+          trimmedQuery,
+          fetchK,
+          undefined,
+          targetCollection,
+        )
+      : await this.qdrant.similaritySearchWithScoreAcrossCollections(
+          trimmedQuery,
+          fetchK,
+        );
 
     // Filter out low-relevance matches below the score threshold (default 0.5)
     const filteredDocs = scoredDocs.filter(

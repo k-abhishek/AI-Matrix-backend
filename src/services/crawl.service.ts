@@ -8,7 +8,7 @@ import chunkingService from './chunking.service';
 import embeddingService from './embedding.service';
 import qdrantService from './qdrant.service';
 import storageService from './storage.service';
-import { hashContent } from '../utils/hashing';
+import { hashContent, sanitizeCollectionName } from '../utils/hashing';
 import { StorageBudgetExceededError } from '../lib/errors';
 import env from '../config/env';
 import { StartCrawlOptions, ChunkItem } from '../types';
@@ -160,7 +160,8 @@ export class CrawlService {
     let finalErrorMessage: string | null = null;
 
     try {
-      await qdrantService.ensureCollection();
+      const collectionName = sanitizeCollectionName(crawler.name);
+      await qdrantService.ensureCollection(collectionName);
 
       logger.info(`Parsing sitemap: ${crawler.sitemapUrl}`, { crawlerId, crawlRunId });
       const sitemapEntries = await sitemapService.fetchAndParse(crawler.sitemapUrl, {
@@ -469,17 +470,18 @@ export class CrawlService {
         }
       );
 
-      await storageService.checkAndEnforceBudget(chunks);
+      const collectionName = sanitizeCollectionName(crawler.name);
+      await storageService.checkAndEnforceBudget(chunks, 0, collectionName);
       const estimatedBytes = storageService.estimateBatchBytes(chunks);
 
       const crawledAt = new Date().toISOString();
-      const { pointIds } = await qdrantService.upsertChunks(chunks, crawledAt);
+      const { pointIds } = await qdrantService.upsertChunks(chunks, crawledAt, collectionName);
 
       if (existingPage && existingPage.chunks.length > chunks.length) {
         const obsoletePointIds = existingPage.chunks
           .slice(chunks.length)
           .map((c) => c.qdrantPointId);
-        await qdrantService.deletePoints(obsoletePointIds);
+        await qdrantService.deletePoints(obsoletePointIds, collectionName);
       }
 
       await prisma.crawledChunk.deleteMany({

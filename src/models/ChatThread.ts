@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IChatCitation {
+  index?: number;
   pageId?: string;
   crawlerId?: string;
   url: string;
@@ -11,6 +12,7 @@ export interface IChatCitation {
 
 export interface IToolCall {
   name: string;
+  taskName?: string;
   args?: Record<string, any>;
   output?: any;
   toolCallId?: string;
@@ -36,6 +38,7 @@ export interface IChatThread extends Document {
 
 const CitationSchema = new Schema<IChatCitation>(
   {
+    index: { type: Number },
     pageId: { type: String },
     crawlerId: { type: String },
     url: { type: String, required: true },
@@ -49,6 +52,7 @@ const CitationSchema = new Schema<IChatCitation>(
 const ToolCallSchema = new Schema<IToolCall>(
   {
     name: { type: String, required: true },
+    taskName: { type: String },
     args: { type: Schema.Types.Mixed },
     output: { type: Schema.Types.Mixed },
     toolCallId: { type: String },

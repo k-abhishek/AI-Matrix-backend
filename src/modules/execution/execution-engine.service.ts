@@ -35,6 +35,11 @@ export class ExecutionEngineService {
   private rateLimitWindowMs = 60000;
   private defaultMaxCallsPerMinute = 60;
   private callBuckets = new Map<string, number[]>();
+  private pendingApprovalTtlMs = 10 * 60 * 1000;
+  private pendingApprovals = new Map<
+    string,
+    { request: UnifiedExecutionRequest; createdAt: number }
+  >();
 
   /**
    * Secret masking pattern: matches sensitive parameter keys to prevent credential leakage.
@@ -72,6 +77,11 @@ export class ExecutionEngineService {
     // 3. Human-in-the-Loop (HITL) approval gate
     if (toolRecord?.requiresApproval && !request.approvalConfirmed) {
       const approvalToken = crypto.randomUUID();
+      this.pruneExpiredApprovals();
+      this.pendingApprovals.set(approvalToken, {
+        request: { ...request },
+        createdAt: Date.now(),
+      });
       logger.info(
         `[ExecutionEngine] Tool '${toolName}' on connection '${connectionId}' requires human approval. Emitted token: ${approvalToken}`
       );
@@ -291,6 +301,47 @@ export class ExecutionEngineService {
       needsRefresh,
       expiresAt: credential.expiresAt,
     };
+  }
+
+  private pruneExpiredApprovals(): void {
+    const cutoff = Date.now() - this.pendingApprovalTtlMs;
+    for (const [token, entry] of this.pendingApprovals.entries()) {
+      if (entry.createdAt < cutoff) {
+        this.pendingApprovals.delete(token);
+      }
+    }
+  }
+
+  /**
+   * Resolves a pending HITL approval token by executing (if approved) or discarding (if rejected).
+   */
+  async resolveApproval(
+    approvalToken: string,
+    workspaceId: string,
+    approved: boolean
+  ): Promise<UnifiedExecutionResponse & { rejected?: boolean }> {
+    this.pruneExpiredApprovals();
+    const pending = this.pendingApprovals.get(approvalToken);
+
+    if (!pending || pending.request.workspaceId !== workspaceId) {
+      throw new NotFoundError('Approval token is invalid, expired, or does not belong to this workspace');
+    }
+
+    this.pendingApprovals.delete(approvalToken);
+
+    if (!approved) {
+      return {
+        success: false,
+        rejected: true,
+        error: `Execution of '${pending.request.toolName}' was rejected by the user.`,
+        durationMs: 0,
+      };
+    }
+
+    return this.executeTool({
+      ...pending.request,
+      approvalConfirmed: true,
+    });
   }
 
   /**

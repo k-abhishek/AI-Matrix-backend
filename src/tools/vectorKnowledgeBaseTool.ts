@@ -3,18 +3,20 @@ import { z } from "zod";
 import searchService from "../modules/search/search.service";
 
 export const vectorKnowledgeBaseTool = tool(
-  async ({ query, limit = 5 }) => {
+  async ({ query, limit = 5, crawlerName }) => {
     try {
       const results = await searchService.search({
         query,
         limit,
         scoreThreshold: 0.5,
+        crawlerName,
       });
       if (results.results.length === 0) {
         return "No relevant documentation or knowledge base records found.";
       }
       return JSON.stringify(
-        results.results.map((r) => ({
+        results.results.map((r, i) => ({
+          index: i + 1,
           pageId: r.metadata.pageId,
           crawlerId: r.metadata.crawlerId,
           title: r.metadata.title,
@@ -36,6 +38,10 @@ export const vectorKnowledgeBaseTool = tool(
         .string()
         .describe("Search query to find relevant indexed documentation"),
       limit: z.number().int().min(1).max(10).default(5).optional(),
+      crawlerName: z
+        .string()
+        .optional()
+        .describe("Optional crawler name to restrict search to a specific indexed site"),
     }),
   },
 );

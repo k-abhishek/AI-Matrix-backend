@@ -77,7 +77,7 @@ describe('Fastify Search API Endpoints', () => {
       ],
     ];
 
-    vi.spyOn(qdrantService, 'similaritySearchWithScore').mockResolvedValue(dummyDocs);
+    vi.spyOn(qdrantService, 'similaritySearchWithScoreAcrossCollections').mockResolvedValue(dummyDocs);
 
     const response = await app.inject({
       method: 'POST',

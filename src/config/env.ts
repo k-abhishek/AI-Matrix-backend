@@ -79,7 +79,7 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string().optional().or(z.literal('')),
   OPENAI_API_KEY: z.string().optional().or(z.literal('')),
   ANTHROPIC_API_KEY: z.string().optional().or(z.literal('')),
-  AGENT_MODEL: z.string().default(process.env.GEMINI_MODEL || process.env.GROQ_MODEL || 'gemini-2.5-flash-lite'),
+  AGENT_MODEL: z.string().default(process.env.GEMINI_MODEL || process.env.GROQ_MODEL || 'gemini-3.5-flash-lite'),
 
   // Crawler
   CRAWLER_MAX_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_CONFIG.CRAWLER_MAX_CONCURRENCY),

@@ -104,7 +104,7 @@ export class ModelFactoryService {
           process.env.GEMINI_API_KEY ||
           process.env.GOOGLE_API_KEY ||
           "";
-        const modelName = options.model || env.AGENT_MODEL || "gemini-2.5-flash-lite";
+        const modelName = options.model || env.AGENT_MODEL || "gemini-3.5-flash-lite";
 
         const model = new ChatGoogleGenerativeAI({
           apiKey,

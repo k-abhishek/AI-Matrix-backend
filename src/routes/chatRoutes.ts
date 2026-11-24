@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from "fastify";
 import chatService from "../modules/chat/chat.service";
+import executionEngineService from "../modules/execution/execution-engine.service";
 import logger from "../lib/logger";
 import { requireAuth } from "../middleware/auth";
 
@@ -7,6 +8,12 @@ interface ChatRequestBody {
   prompt: string;
   chatId?: string;
   agentId?: string;
+  connectionIds?: string[];
+}
+
+interface ApproveToolBody {
+  approvalToken: string;
+  approved: boolean;
 }
 
 interface ChatIdParams {
@@ -41,6 +48,17 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
               description:
                 "Optional threadId/chatId UUID to continue an existing conversation",
             },
+            agentId: {
+              type: "string",
+              description:
+                "Optional agent UUID to dynamically bind connector tools",
+            },
+            connectionIds: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional list of specific connection IDs to scope tools for this query",
+            },
           },
         },
         response: {
@@ -63,6 +81,7 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
                 items: {
                   type: "object",
                   properties: {
+                    index: { type: "number" },
                     pageId: { type: "string" },
                     crawlerId: { type: "string" },
                     url: { type: "string" },
@@ -92,7 +111,7 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (req, reply) => {
-      const { prompt, chatId, agentId } = req.body;
+      const { prompt, chatId, agentId, connectionIds } = req.body;
 
       if (!prompt || prompt.trim() === "") {
         return reply.status(400).send({ error: "Prompt cannot be empty" });
@@ -100,7 +119,15 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const workspaceId = (req as any).auth?.orgId || (req as any).userId || "default_user";
-        const response = await chatService.sendMessage({ prompt, chatId, agentId, workspaceId });
+        const userId = (req as any).userId;
+        const response = await chatService.sendMessage({
+          prompt,
+          chatId,
+          agentId,
+          workspaceId,
+          userId,
+          connectionIds,
+        });
         return reply.status(200).send(response);
       } catch (err: unknown) {
         const errorMessage =
@@ -142,13 +169,20 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
               description:
                 "Optional agent UUID to dynamically bind connector tools",
             },
+            connectionIds: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional list of specific connection IDs to scope tools for this query",
+            },
           },
         },
       },
     },
     async (req, reply) => {
-      const { prompt, chatId, agentId } = req.body || {};
+      const { prompt, chatId, agentId, connectionIds } = req.body || {};
       const workspaceId = (req as any).auth?.orgId || (req as any).userId || "default_user";
+      const userId = (req as any).userId;
 
       if (!prompt || prompt.trim() === "") {
         return reply.status(400).send({ error: "Prompt cannot be empty" });
@@ -184,10 +218,13 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       await chatService.sendMessageStream(
-        { prompt, chatId, agentId, workspaceId },
+        { prompt, chatId, agentId, workspaceId, userId, connectionIds },
         {
           onInit: (data) => {
             sendEvent("init", data);
+          },
+          onStatus: (data) => {
+            sendEvent("status", data);
           },
           onToken: (chunk) => {
             sendEvent("token", { chunk });
@@ -197,6 +234,9 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
           },
           onToolEnd: (data) => {
             sendEvent("tool_end", data);
+          },
+          onApprovalRequired: (data) => {
+            sendEvent("approval_required", data);
           },
           onDone: (data) => {
             sendEvent("done", data);
@@ -447,6 +487,84 @@ const chatRoutes: FastifyPluginAsync = async (fastify) => {
           err instanceof Error ? err.message : "Failed to delete chat thread";
         logger.error(`Error deleting chat thread chatId=${chatId}:`, err);
         return reply.status(500).send({ error: errorMessage });
+      }
+    },
+  );
+
+  /**
+   * POST /api/chat/approve
+   * Confirms or rejects a pending Human-in-the-Loop (HITL) tool execution.
+   */
+  fastify.post<{ Body: ApproveToolBody }>(
+    "/approve",
+    {
+      schema: {
+        description:
+          "Approve or reject a pending sensitive tool execution emitted via approval_required SSE event",
+        tags: ["Chat"],
+        summary: "Resolve pending tool approval",
+        body: {
+          type: "object",
+          required: ["approvalToken", "approved"],
+          properties: {
+            approvalToken: {
+              type: "string",
+              description: "The approvalToken received in the approval_required event",
+            },
+            approved: {
+              type: "boolean",
+              description: "True to execute the tool, false to reject it",
+            },
+          },
+        },
+        response: {
+          200: {
+            description: "Approval resolution result",
+            type: "object",
+            additionalProperties: true,
+          },
+          400: {
+            description: "Missing or invalid payload",
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+          404: {
+            description: "Approval token not found or expired",
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+          500: {
+            description: "Execution error",
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { approvalToken, approved } = req.body || {};
+
+      if (!approvalToken || typeof approved !== "boolean") {
+        return reply
+          .status(400)
+          .send({ error: "approvalToken and boolean approved are required" });
+      }
+
+      try {
+        const workspaceId =
+          (req as any).auth?.orgId || (req as any).userId || "default_user";
+        const result = await executionEngineService.resolveApproval(
+          approvalToken,
+          workspaceId,
+          approved,
+        );
+        return reply.status(200).send(result);
+      } catch (err: unknown) {
+        const statusCode = (err as any)?.statusCode || 500;
+        const errorMessage =
+          err instanceof Error ? err.message : "Failed to resolve approval";
+        logger.error(`Error in POST /api/chat/approve:`, err);
+        return reply.status(statusCode).send({ error: errorMessage });
       }
     },
   );

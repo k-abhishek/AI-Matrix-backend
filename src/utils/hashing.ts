@@ -50,3 +50,19 @@ export function generatePointId(pageId: string, chunkIndex: number): string {
   return uuidv5(seed, QDRANT_NAMESPACE);
 }
 
+/**
+ * Normalizes a crawler name into a valid Qdrant collection name.
+ * Replaces non-alphanumeric characters (except _ and -) with underscores,
+ * trims leading/trailing separators, lowercases, and enforces Qdrant's 255-char limit.
+ */
+export function sanitizeCollectionName(name: string, fallback = 'website_content'): string {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '')
+    .slice(0, 255);
+
+  return normalized || fallback;
+}
+

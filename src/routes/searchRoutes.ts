@@ -48,6 +48,14 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
               default: 1,
               minimum: 1,
             },
+            collectionName: {
+              type: 'string',
+              description: 'Optional Qdrant collection name to scope the search to',
+            },
+            crawlerName: {
+              type: 'string',
+              description: 'Optional crawler name to scope the search to',
+            },
           },
         },
         response: {

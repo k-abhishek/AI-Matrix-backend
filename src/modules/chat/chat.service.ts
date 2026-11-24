@@ -14,19 +14,27 @@ import {
 import logger from "../../lib/logger";
 import modelFactoryService from "../../services/modelFactory.service";
 import contextWindowService from "../../services/contextWindow.service";
-import agentToolResolverService from "../agents/agent-tool-resolver.service";
+import agentToolResolverService, {
+  ActiveConnectionSummary,
+  AgentStatusPhase,
+  ApprovalRequiredEvent,
+  ToolDisplayMeta,
+  inferStatusPhase,
+} from "../agents/agent-tool-resolver.service";
 
 export const DEFAULT_AGENT_SYSTEM_PROMPT = `You are a helpful and intelligent AI research assistant Matrix.
 You have access to the search_knowledge_base tool to search the indexed documentation and crawled website database. Always check this first when answering questions about indexed websites or documentation.
 
 Always provide polite, comprehensive, and well-structured answers.
-When citing information from the knowledge base, reference the source URLs.`;
+When citing information from search_knowledge_base, include inline numeric citation markers immediately after the supported claim using each result's index (e.g. [1], [2]). Only cite indices returned by the tool and never invent URLs.`;
 
 export interface SendMessageInput {
   prompt: string;
   chatId?: string;
   agentId?: string;
   workspaceId?: string;
+  userId?: string;
+  connectionIds?: string[];
 }
 
 export interface SendMessageResponse {
@@ -38,9 +46,19 @@ export interface SendMessageResponse {
 
 export interface StreamCallbacks {
   onInit?: (data: { chatId: string }) => void;
+  onStatus?: (data: {
+    status: AgentStatusPhase;
+    taskName?: string;
+    tool?: string;
+  }) => void;
   onToken?: (chunk: string) => void;
-  onToolStart?: (data: { tool: string; input: any }) => void;
-  onToolEnd?: (data: { tool: string; citations?: IChatCitation[] }) => void;
+  onToolStart?: (data: { tool: string; taskName?: string; input: any }) => void;
+  onToolEnd?: (data: {
+    tool: string;
+    taskName?: string;
+    citations?: IChatCitation[];
+  }) => void;
+  onApprovalRequired?: (data: ApprovalRequiredEvent) => void;
   onDone?: (data: {
     chatId: string;
     message: string;
@@ -109,18 +127,29 @@ export class ChatService {
     const workspaceId = input.workspaceId || "default_user";
 
     let dynamicTools: any[] = [];
+    let toolMetaMap = new Map<string, ToolDisplayMeta>();
+    let activeConnections: ActiveConnectionSummary[] = [];
     try {
-      dynamicTools = await agentToolResolverService.resolveToolsForAgent(agentId, workspaceId);
+      const resolved = await agentToolResolverService.resolveToolsWithMeta({
+        agentId,
+        workspaceId,
+        userId: input.userId,
+        connectionIds: input.connectionIds,
+      });
+      dynamicTools = resolved.tools;
+      toolMetaMap = resolved.toolMetaMap;
+      activeConnections = resolved.activeConnections;
     } catch (err: any) {
       logger.warn(`[ChatService] Could not resolve dynamic tools: ${err.message}`);
     }
 
     const allTools = [...dynamicTools, vectorKnowledgeBaseTool];
+    const systemPrompt = this.buildSystemPrompt(activeConnections);
 
     const agent = createAgent({
       model,
       tools: allTools,
-      systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
+      systemPrompt,
       middleware: middlewares,
     });
 
@@ -153,8 +182,11 @@ export class ChatService {
         // Collect tool calls requested by assistant
         if (rawMsg.tool_calls && Array.isArray(rawMsg.tool_calls)) {
           for (const tc of rawMsg.tool_calls) {
+            const toolName = tc.name || "tool";
+            const meta = this.getToolMeta(toolName, toolMetaMap);
             extractedToolCalls.push({
-              name: tc.name || "tool",
+              name: toolName,
+              taskName: meta.taskName,
               args: tc.args,
               toolCallId: tc.id,
             });
@@ -185,6 +217,10 @@ export class ChatService {
               for (const item of parsed) {
                 if (item && item.url) {
                   extractedCitations.push({
+                    index:
+                      typeof item.index === "number"
+                        ? item.index
+                        : extractedCitations.length + 1,
                     pageId: item.pageId,
                     crawlerId: item.crawlerId,
                     url: item.url,
@@ -249,6 +285,50 @@ export class ChatService {
   }
 
   /**
+   * Builds the system prompt, including active user connections when available.
+   */
+  private buildSystemPrompt(activeConnections: ActiveConnectionSummary[]): string {
+    if (!activeConnections.length) {
+      return DEFAULT_AGENT_SYSTEM_PROMPT;
+    }
+
+    const connectionLines = activeConnections
+      .map((c) => `- ${c.name} (${c.connectorName}, ${c.toolCount} tools)`)
+      .join("\n");
+
+    return `${DEFAULT_AGENT_SYSTEM_PROMPT}
+
+You also have access to the user's connected integrations:
+${connectionLines}
+
+Use these tools whenever the user's request involves those services. If a tool returns APPROVAL_REQUIRED, inform the user that confirmation is needed in the approval prompt before the action can run.`;
+  }
+
+  /**
+   * Resolves human-readable taskName and statusPhase for any tool.
+   */
+  private getToolMeta(
+    toolName: string,
+    toolMetaMap: Map<string, ToolDisplayMeta>,
+  ): ToolDisplayMeta {
+    if (toolName === "search_knowledge_base") {
+      return {
+        uniqueToolName: "search_knowledge_base",
+        taskName: "Knowledge Base: Search",
+        statusPhase: "Searching",
+      };
+    }
+
+    return (
+      toolMetaMap.get(toolName) || {
+        uniqueToolName: toolName,
+        taskName: toolName,
+        statusPhase: inferStatusPhase(toolName, false),
+      }
+    );
+  }
+
+  /**
    * Helper to parse and deduplicate citations from search tool output
    */
 
@@ -269,6 +349,10 @@ export class ChatService {
           if (item && item.url && !seenUrls.has(item.url)) {
             seenUrls.add(item.url);
             citations.push({
+              index:
+                typeof item.index === "number"
+                  ? item.index
+                  : seenUrls.size,
               pageId: item.pageId,
               crawlerId: item.crawlerId,
               url: item.url,
@@ -313,6 +397,10 @@ export class ChatService {
 
     // Notify client of the resolved chatId immediately
     callbacks.onInit?.({ chatId });
+    callbacks.onStatus?.({
+      status: "Working",
+      taskName: "Understanding your request",
+    });
 
     // 1. Ensure conversation thread exists in MongoDB
     const thread = await this.repo.findOrCreate(chatId, titleSnippet);
@@ -352,18 +440,32 @@ export class ChatService {
     const workspaceId = input.workspaceId || "default_user";
 
     let dynamicTools: any[] = [];
+    let toolMetaMap = new Map<string, ToolDisplayMeta>();
+    let activeConnections: ActiveConnectionSummary[] = [];
     try {
-      dynamicTools = await agentToolResolverService.resolveToolsForAgent(agentId, workspaceId);
+      const resolved = await agentToolResolverService.resolveToolsWithMeta({
+        agentId,
+        workspaceId,
+        userId: input.userId,
+        connectionIds: input.connectionIds,
+        onApprovalRequired: (payload) => {
+          callbacks.onApprovalRequired?.(payload);
+        },
+      });
+      dynamicTools = resolved.tools;
+      toolMetaMap = resolved.toolMetaMap;
+      activeConnections = resolved.activeConnections;
     } catch (err: any) {
       logger.warn(`[ChatService] Could not resolve dynamic tools: ${err.message}`);
     }
 
     const allTools = [...dynamicTools, vectorKnowledgeBaseTool];
+    const systemPrompt = this.buildSystemPrompt(activeConnections);
 
     const agent = createAgent({
       model,
       tools: allTools,
-      systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
+      systemPrompt,
       middleware: middlewares,
     });
 
@@ -371,14 +473,24 @@ export class ChatService {
     const extractedCitations: IChatCitation[] = [];
     const seenUrls = new Set<string>();
     let fullAssistantContent = "";
+    let hasEmittedComposing = false;
+    let usedNonStreamingFallback = false;
+
+    callbacks.onStatus?.({
+      status: "Solving",
+      taskName: "Planning response",
+    });
 
     try {
-      const eventStream = agent.streamEvents(
-        { messages: contextMessages },
-        { version: "v2", signal },
-      );
+      const maxStreamAttempts = 2;
+      for (let attempt = 0; attempt < maxStreamAttempts; attempt++) {
+        try {
+          const eventStream = agent.streamEvents(
+            { messages: contextMessages },
+            { version: "v2", signal },
+          );
 
-      for await (const event of eventStream) {
+          for await (const event of eventStream) {
         if (signal?.aborted) {
           logger.info(`Stream aborted by client for chatId=${chatId}`);
           return;
@@ -407,6 +519,13 @@ export class ChatService {
             }
 
             if (textChunk) {
+              if (!hasEmittedComposing) {
+                hasEmittedComposing = true;
+                callbacks.onStatus?.({
+                  status: "Composing",
+                  taskName: "Composing response",
+                });
+              }
               fullAssistantContent += textChunk;
               callbacks.onToken?.(textChunk);
             }
@@ -428,19 +547,33 @@ export class ChatService {
 
         // Handle tool start
         if (event.event === "on_tool_start") {
+          const toolName = event.name || "tool";
+          const meta = this.getToolMeta(toolName, toolMetaMap);
           const toolCall: IToolCall = {
-            name: event.name || "tool",
+            name: toolName,
+            taskName: meta.taskName,
             args: event.data?.input,
           };
           extractedToolCalls.push(toolCall);
-          callbacks.onToolStart?.({ tool: toolCall.name, input: toolCall.args });
+          callbacks.onStatus?.({
+            status: meta.statusPhase,
+            taskName: meta.taskName,
+            tool: toolName,
+          });
+          callbacks.onToolStart?.({
+            tool: toolCall.name,
+            taskName: meta.taskName,
+            input: toolCall.args,
+          });
         }
 
         // Handle tool end
         if (event.event === "on_tool_end") {
+          const toolName = event.name || "tool";
+          const meta = this.getToolMeta(toolName, toolMetaMap);
           const toolOutput = event.data?.output;
           const matchingCall =
-            [...extractedToolCalls].reverse().find((tc) => tc.name === event.name && !tc.output) ||
+            [...extractedToolCalls].reverse().find((tc) => tc.name === toolName && !tc.output) ||
             extractedToolCalls.at(-1);
 
           if (matchingCall) {
@@ -453,11 +586,139 @@ export class ChatService {
           }
 
           callbacks.onToolEnd?.({
-            tool: event.name || "tool",
+            tool: toolName,
+            taskName: meta.taskName,
             citations: citations.length > 0 ? citations : undefined,
+          });
+          hasEmittedComposing = false;
+          callbacks.onStatus?.({
+            status: "Solving",
+            taskName: "Analyzing results",
           });
         }
       }
+          break;
+        } catch (streamErr: unknown) {
+          const streamMsg =
+            streamErr instanceof Error ? streamErr.message : String(streamErr);
+          const isTransientStreamParseError =
+            streamMsg.includes("Failed to parse stream") ||
+            streamMsg.includes("Error parsing JSON response");
+          const canRetry =
+            attempt === 0 &&
+            isTransientStreamParseError &&
+            fullAssistantContent === "" &&
+            extractedToolCalls.length === 0 &&
+            !signal?.aborted;
+
+          if (!canRetry) {
+            const canFallbackToNonStreaming =
+              isTransientStreamParseError &&
+              fullAssistantContent === "" &&
+              extractedToolCalls.length === 0 &&
+              !signal?.aborted;
+
+            if (!canFallbackToNonStreaming) {
+              throw streamErr;
+            }
+
+            logger.warn(
+              `[ChatService] Stream parse error persisted for chatId=${chatId} model=${modelName}; ` +
+                `falling back to non-streaming invoke. contextMsgs=${JSON.stringify(
+                  contextMessages.map((m) => ({
+                    role: m._getType(),
+                    len: typeof m.content === "string" ? m.content.length : -1,
+                  })),
+                )}`,
+            );
+
+            const fallbackModelInfo = modelFactoryService.createModel({
+              temperature: 0.7,
+              streaming: false,
+            });
+            const fallbackAgent = createAgent({
+              model: fallbackModelInfo.model,
+              tools: allTools,
+              systemPrompt,
+              middleware: middlewares,
+            });
+
+            const fallbackResult = await fallbackAgent.invoke({
+              messages: contextMessages,
+            });
+
+            if (Array.isArray(fallbackResult.messages)) {
+              for (const msg of fallbackResult.messages) {
+                const rawMsg = msg as any;
+                if (rawMsg.tool_calls && Array.isArray(rawMsg.tool_calls)) {
+                  for (const tc of rawMsg.tool_calls) {
+                    const toolName = tc.name || "tool";
+                    const meta = this.getToolMeta(toolName, toolMetaMap);
+                    extractedToolCalls.push({
+                      name: toolName,
+                      taskName: meta.taskName,
+                      args: tc.args,
+                      toolCallId: tc.id,
+                    });
+                    callbacks.onToolStart?.({
+                      tool: toolName,
+                      taskName: meta.taskName,
+                      input: tc.args,
+                    });
+                  }
+                }
+
+                if (
+                  (typeof rawMsg._getType === "function" &&
+                    rawMsg._getType() === "tool") ||
+                  rawMsg.role === "tool"
+                ) {
+                  const matching = extractedToolCalls.find(
+                    (tc) => tc.toolCallId === rawMsg.tool_call_id,
+                  );
+                  if (matching) {
+                    matching.output = rawMsg.content;
+                  }
+                  const citations = this.extractCitationsFromOutput(
+                    rawMsg.content,
+                    seenUrls,
+                  );
+                  if (citations.length > 0) {
+                    extractedCitations.push(...citations);
+                  }
+                  callbacks.onToolEnd?.({
+                    tool: matching?.name || "tool",
+                    taskName: matching?.taskName,
+                    citations: citations.length > 0 ? citations : undefined,
+                  });
+                }
+              }
+            }
+
+            const lastFallbackMsg = fallbackResult.messages?.at(-1) as any;
+            fullAssistantContent =
+              typeof lastFallbackMsg?.content === "string"
+                ? lastFallbackMsg.content
+                : JSON.stringify(lastFallbackMsg?.content ?? "");
+
+            callbacks.onStatus?.({
+              status: "Composing",
+              taskName: "Composing response",
+            });
+            if (fullAssistantContent) {
+              callbacks.onToken?.(fullAssistantContent);
+            }
+            usedNonStreamingFallback = true;
+            break;
+          }
+
+          logger.warn(
+            `[ChatService] Transient stream parse error for chatId=${chatId}, retrying once: ${streamMsg}`,
+          );
+          hasEmittedComposing = false;
+        }
+      }
+      void usedNonStreamingFallback;
 
       // If stream finished normally without error and was not aborted, persist
       if (!signal?.aborted) {

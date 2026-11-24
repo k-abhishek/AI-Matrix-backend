@@ -1,23 +1,108 @@
 import { tool } from '@langchain/core/tools';
 import prisma from '../../lib/prisma';
 import jsonSchemaToZod from '../../utils/schema-converter';
-import mcpExecutionService from '../mcp/mcp-execution.service';
-import customRestConnectorAdapter from '../adapters/rest/custom-rest.adapter';
-import gmailSendFallbackAdapter from '../adapters/native/fallback/gmail-send-fallback';
-import nativeAdapterRegistry from '../adapters/native/native-adapter.registry';
+import executionEngineService from '../execution/execution-engine.service';
 import logger from '../../lib/logger';
+
+export type AgentStatusPhase =
+  | 'Working'
+  | 'Searching'
+  | 'Solving'
+  | 'Connecting'
+  | 'Composing';
+
+export interface ApprovalRequiredEvent {
+  approvalToken: string;
+  connectionId: string;
+  connectionName: string;
+  connectorKey: string;
+  toolName: string;
+  uniqueToolName: string;
+  taskName: string;
+  parameters: Record<string, any>;
+  message: string;
+}
+
+export interface ToolDisplayMeta {
+  uniqueToolName: string;
+  taskName: string;
+  statusPhase: AgentStatusPhase;
+  connectionId?: string;
+  connectionName?: string;
+  connectorKey?: string;
+}
+
+export interface ActiveConnectionSummary {
+  connectionId: string;
+  name: string;
+  connectorKey: string;
+  connectorName: string;
+  toolCount: number;
+}
+
+export interface ResolveToolsOptions {
+  agentId: string;
+  workspaceId: string;
+  userId?: string;
+  connectionIds?: string[];
+  onApprovalRequired?: (payload: ApprovalRequiredEvent) => void;
+}
+
+export interface ResolvedAgentToolsResult {
+  tools: any[];
+  toolMetaMap: Map<string, ToolDisplayMeta>;
+  activeConnections: ActiveConnectionSummary[];
+}
+
+function humanizeToolName(rawName: string): string {
+  return rawName
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+export function inferStatusPhase(toolName: string, isExternalConnection = true): AgentStatusPhase {
+  if (
+    toolName === 'search_knowledge_base' ||
+    /^(search|find|query|list|get|fetch|read|lookup|browse|inspect)/i.test(toolName)
+  ) {
+    return 'Searching';
+  }
+  if (/^(create|send|post|draft|write|reply|compose|update|edit|append)/i.test(toolName)) {
+    return 'Composing';
+  }
+  if (/^(solve|analyze|calculate|compute|evaluate|summarize)/i.test(toolName)) {
+    return 'Solving';
+  }
+  return isExternalConnection ? 'Connecting' : 'Working';
+}
 
 export class AgentToolResolverService {
   /**
-   * Dynamically loads all permitted connector tools for an agent in a workspace
-   * and synthesizes them into LangChain-compatible StructuredTool instances.
+   * Backward-compatible helper returning only the synthesized LangChain tools.
    */
   async resolveToolsForAgent(agentId: string, workspaceId: string) {
-    const bindings = await prisma.agentConnectorBinding.findMany({
+    const { tools } = await this.resolveToolsWithMeta({ agentId, workspaceId });
+    return tools;
+  }
+
+  /**
+   * Dynamically loads all permitted connector tools for an agent/workspace
+   * (falling back to all CONNECTED workspace connections when no explicit
+   * agent bindings exist), routes execution through ExecutionEngineService,
+   * and returns LangChain tools alongside UI display metadata (taskName & statusPhase).
+   */
+  async resolveToolsWithMeta(options: ResolveToolsOptions): Promise<ResolvedAgentToolsResult> {
+    const { agentId, workspaceId, userId, connectionIds, onApprovalRequired } = options;
+    const connectionFilter =
+      connectionIds && connectionIds.length > 0 ? { in: connectionIds } : undefined;
+
+    const explicitBindings = await prisma.agentConnectorBinding.findMany({
       where: {
         agentId,
         workspaceId,
         isEnabled: true,
+        ...(connectionFilter ? { connectionId: connectionFilter } : {}),
       },
       include: {
         connection: {
@@ -31,83 +116,125 @@ export class AgentToolResolverService {
       },
     });
 
-    const dynamicTools: any[] = [];
+    type ResolvedBinding = {
+      allowedToolNames: string[];
+      connection: (typeof explicitBindings)[number]['connection'];
+    };
 
-    for (const binding of bindings) {
+    let resolvedBindings: ResolvedBinding[] = explicitBindings.map((b) => ({
+      allowedToolNames: b.allowedToolNames,
+      connection: b.connection,
+    }));
+
+    // Fallback: if no explicit bindings exist for this agent, automatically use
+    // all CONNECTED connections in the user's workspace (optionally filtered by connectionIds).
+    if (resolvedBindings.length === 0) {
+      const workspaceConnections = await prisma.connectorConnection.findMany({
+        where: {
+          workspaceId,
+          status: 'CONNECTED',
+          ...(connectionFilter ? { id: connectionFilter } : {}),
+        },
+        include: {
+          connectorDefinition: true,
+          tools: {
+            where: { isEnabled: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      resolvedBindings = workspaceConnections.map((conn) => ({
+        allowedToolNames: [],
+        connection: conn,
+      }));
+    }
+
+    // Count connections per connector key to avoid tool-name collisions when multiple
+    // connections of the same type exist in a workspace.
+    const keyCounts = new Map<string, number>();
+    for (const binding of resolvedBindings) {
+      if (binding.connection.status !== 'CONNECTED') continue;
+      const key = binding.connection.connectorDefinition.key;
+      keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+    }
+
+    const dynamicTools: any[] = [];
+    const toolMetaMap = new Map<string, ToolDisplayMeta>();
+    const activeConnections: ActiveConnectionSummary[] = [];
+
+    for (const binding of resolvedBindings) {
       const { connection } = binding;
       if (connection.status !== 'CONNECTED') continue;
 
-      const prefix = connection.connectorDefinition.key.replace(/[^a-zA-Z0-9_]/g, '_');
+      const defKey = connection.connectorDefinition.key;
+      const basePrefix = defKey.replace(/[^a-zA-Z0-9_]/g, '_');
+      const hasMultipleSameType = (keyCounts.get(defKey) || 0) > 1;
+      const prefix = hasMultipleSameType
+        ? `${basePrefix}_${connection.id.slice(0, 6)}`
+        : basePrefix;
 
-      for (const t of connection.tools) {
-        // Filter by allowedToolNames if specified
-        if (binding.allowedToolNames.length > 0 && !binding.allowedToolNames.includes(t.name)) {
-          continue;
-        }
+      let connectionToolCount = 0;
 
-        // Namespace the tool name to avoid collisions
-        const uniqueToolName = `${prefix}_${t.name}`.slice(0, 64);
-        const schema = jsonSchemaToZod(t.inputSchema as Record<string, any>);
+      const buildSynthesizedTool = (
+        toolName: string,
+        displayName: string | null | undefined,
+        description: string,
+        schemaObj: Record<string, any>
+      ) => {
+        const uniqueToolName = `${prefix}_${toolName}`.slice(0, 64);
+        const taskName = `${connection.name}: ${displayName || humanizeToolName(toolName)}`;
+        const statusPhase = inferStatusPhase(toolName, true);
 
-        const synthesizedTool = tool(
+        toolMetaMap.set(uniqueToolName, {
+          uniqueToolName,
+          taskName,
+          statusPhase,
+          connectionId: connection.id,
+          connectionName: connection.name,
+          connectorKey: defKey,
+        });
+
+        const schema = jsonSchemaToZod(schemaObj);
+        connectionToolCount += 1;
+
+        return tool(
           async (input: Record<string, any>) => {
             try {
-              // Special-case native fallback for Gmail email sending
-              if (t.name === 'send_email' && connection.connectorDefinition.key === 'gmail') {
-                const sendResult = await gmailSendFallbackAdapter.sendEmail(
-                  connection.id,
-                  input as any
-                );
-                return JSON.stringify(sendResult.data || { success: sendResult.success });
-              }
-
-              // Native adapter routing for NATIVE connector type
-              if (connection.connectorDefinition.type === 'NATIVE') {
-                const adapter = nativeAdapterRegistry.getAdapter(connection.connectorDefinition.key);
-                if (adapter) {
-                  const nativeResult = await adapter.executeTool(t.name, input, {
-                    connectionId: connection.id,
-                    workspaceId,
-                    baseUrl: connection.baseUrl,
-                    config: connection.config as any,
-                  });
-                  if (!nativeResult.success) {
-                    return `Tool error: ${nativeResult.error}`;
-                  }
-                  return typeof nativeResult.data === 'string'
-                    ? nativeResult.data
-                    : JSON.stringify(nativeResult.data);
-                }
-              }
-
-              // Custom REST connector routing
-              if (
-                connection.connectorDefinition.type === 'CUSTOM_REST' ||
-                connection.connectorDefinition.key === 'custom-rest'
-              ) {
-                const restResult = await customRestConnectorAdapter.executeTool(
-                  t.name,
-                  input,
-                  {
-                    connectionId: connection.id,
-                    workspaceId,
-                    baseUrl: connection.baseUrl,
-                    config: connection.config as any,
-                  }
-                );
-                if (!restResult.success) {
-                  return `Tool error: ${restResult.error}`;
-                }
-                return typeof restResult.data === 'string'
-                  ? restResult.data
-                  : JSON.stringify(restResult.data);
-              }
-
-              const result = await mcpExecutionService.executeTool({
+              const result = await executionEngineService.executeTool({
                 connectionId: connection.id,
-                toolName: t.name,
+                toolName,
                 parameters: input,
+                workspaceId,
+                userId,
+                agentId,
               });
+
+              if (result.requiresApproval && result.approvalToken) {
+                const approvalMessage =
+                  result.error ||
+                  `Action '${taskName}' requires human approval before execution.`;
+
+                onApprovalRequired?.({
+                  approvalToken: result.approvalToken,
+                  connectionId: connection.id,
+                  connectionName: connection.name,
+                  connectorKey: defKey,
+                  toolName,
+                  uniqueToolName,
+                  taskName,
+                  parameters: input,
+                  message: approvalMessage,
+                });
+
+                return JSON.stringify({
+                  status: 'APPROVAL_REQUIRED',
+                  approvalToken: result.approvalToken,
+                  taskName,
+                  message:
+                    'This action requires human approval. An approval prompt has been sent to the user. Tell the user to confirm or reject the action in the UI.',
+                });
+              }
 
               if (!result.success) {
                 return `Tool error: ${result.error}`;
@@ -123,47 +250,62 @@ export class AgentToolResolverService {
           },
           {
             name: uniqueToolName,
-            description: t.description || `Execute ${t.displayName || t.name} on ${connection.name}`,
+            description,
             schema: schema as any,
           }
         );
+      };
 
+      for (const t of connection.tools) {
+        if (binding.allowedToolNames.length > 0 && !binding.allowedToolNames.includes(t.name)) {
+          continue;
+        }
+
+        const synthesizedTool = buildSynthesizedTool(
+          t.name,
+          t.displayName,
+          t.description || `Execute ${t.displayName || t.name} on ${connection.name}`,
+          t.inputSchema as Record<string, any>
+        );
         dynamicTools.push(synthesizedTool);
       }
 
-      // If this is a connected Gmail connection and doesn't already have send_email in tools,
-      // provide the Native Fallback Tool automatically!
+      // Native Fallback Tool for Gmail if send_email is not already in discovered tools
       if (
-        connection.connectorDefinition.key === 'gmail' &&
+        defKey === 'gmail' &&
         !connection.tools.some((t) => t.name === 'send_email') &&
         (binding.allowedToolNames.length === 0 || binding.allowedToolNames.includes('send_email'))
       ) {
-        const gmailSendTool = tool(
-          async (input: any) => {
-            const res = await gmailSendFallbackAdapter.sendEmail(connection.id, input);
-            if (!res.success) return `Error sending email: ${res.error}`;
-            return JSON.stringify(res.data);
-          },
+        const gmailSendTool = buildSynthesizedTool(
+          'send_email',
+          'Send Email',
+          'Send an email to one or more recipients via Gmail (Native Fallback Tool)',
           {
-            name: `${prefix}_send_email`,
-            description: 'Send an email to one or more recipients via Gmail (Native Fallback Tool)',
-            schema: jsonSchemaToZod({
-              type: 'object',
-              required: ['to', 'subject', 'body'],
-              properties: {
-                to: { type: 'string', description: 'Recipient email address' },
-                subject: { type: 'string', description: 'Email subject line' },
-                body: { type: 'string', description: 'Email plain text body' },
-                cc: { type: 'string', description: 'Optional CC email address' },
-              },
-            }) as any,
+            type: 'object',
+            required: ['to', 'subject', 'body'],
+            properties: {
+              to: { type: 'string', description: 'Recipient email address' },
+              subject: { type: 'string', description: 'Email subject line' },
+              body: { type: 'string', description: 'Email plain text body' },
+              cc: { type: 'string', description: 'Optional CC email address' },
+            },
           }
         );
         dynamicTools.push(gmailSendTool);
       }
+
+      if (connectionToolCount > 0) {
+        activeConnections.push({
+          connectionId: connection.id,
+          name: connection.name,
+          connectorKey: defKey,
+          connectorName: connection.connectorDefinition.name,
+          toolCount: connectionToolCount,
+        });
+      }
     }
 
-    return dynamicTools;
+    return { tools: dynamicTools, toolMetaMap, activeConnections };
   }
 }
 

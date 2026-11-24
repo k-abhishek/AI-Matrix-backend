@@ -38,9 +38,10 @@ export class StorageService {
    */
   async checkAndEnforceBudget(
     incomingChunks: ChunkItem[],
-    accumulatedRunBytes = 0
+    accumulatedRunBytes = 0,
+    collectionName?: string
   ): Promise<StorageBudgetStatus> {
-    const stats = await qdrantService.getCollectionStats();
+    const stats = await qdrantService.getCollectionStats(collectionName);
 
     const avgPointBytes = env.QDRANT_VECTOR_SIZE * 4 + 2000;
     const estimatedExistingBytes = stats.vectorsCount * avgPointBytes;
@@ -75,8 +76,8 @@ export class StorageService {
   /**
    * Returns storage metrics for monitoring endpoints.
    */
-  async getStorageMetrics(accumulatedRunBytes = 0): Promise<StorageBudgetStatus> {
-    const stats = await qdrantService.getCollectionStats();
+  async getStorageMetrics(accumulatedRunBytes = 0, collectionName?: string): Promise<StorageBudgetStatus> {
+    const stats = await qdrantService.getCollectionStats(collectionName);
     const avgPointBytes = env.QDRANT_VECTOR_SIZE * 4 + 2000;
     const currentUsageBytes = stats.vectorsCount * avgPointBytes + accumulatedRunBytes;
     const usagePercentage = Math.round((currentUsageBytes / this.budgetBytes) * 1000) / 10;

@@ -10,6 +10,8 @@ export const searchBodySchema = z.object({
     .max(500, 'Search query exceeds maximum length of 500 characters'),
   limit: z.coerce.number().int().min(1).max(100).optional().default(10),
   page: z.coerce.number().int().min(1).optional().default(1),
+  collectionName: z.string().trim().min(1).max(255).optional(),
+  crawlerName: z.string().trim().min(1).max(255).optional(),
 });
 
 export class SearchController {

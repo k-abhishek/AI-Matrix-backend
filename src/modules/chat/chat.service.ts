@@ -1,14 +1,19 @@
 import crypto from "crypto";
 import { createAgent, anthropicPromptCachingMiddleware } from "langchain";
-import { vectorKnowledgeBaseTool } from "../../tools";
+import { vectorKnowledgeBaseTool, webSearchTool } from "../../tools";
+import prisma from "../../lib/prisma";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
+import { WorkspaceContext } from "../../middleware/auth";
 import chatRepository, {
   ChatRepository,
+  ChatThreadScope,
   ChatThreadSummary,
 } from "./chat.repository";
 import {
   IChatMessage,
   IToolCall,
   IChatCitation,
+  IChatStep,
   IChatThread,
 } from "../../models/ChatThread";
 import logger from "../../lib/logger";
@@ -23,10 +28,10 @@ import agentToolResolverService, {
 } from "../agents/agent-tool-resolver.service";
 
 export const DEFAULT_AGENT_SYSTEM_PROMPT = `You are a helpful and intelligent AI research assistant Matrix.
-You have access to the search_knowledge_base tool to search the indexed documentation and crawled website database. Always check this first when answering questions about indexed websites or documentation.
+You have access to the search_knowledge_base tool to search the indexed documentation and crawled website database, and the web_search tool to search the live web via Exa. Always check search_knowledge_base first when answering questions about indexed websites or documentation, and use web_search when up-to-date or external web information is needed.
 
 Always provide polite, comprehensive, and well-structured answers.
-When citing information from search_knowledge_base, include inline numeric citation markers immediately after the supported claim using each result's index (e.g. [1], [2]). Only cite indices returned by the tool and never invent URLs.`;
+When citing information from search_knowledge_base or web_search, include inline numeric citation markers immediately after the supported claim using each result's index (e.g. [1], [2]). Only cite indices returned by the tool and never invent URLs.`;
 
 export interface SendMessageInput {
   prompt: string;
@@ -34,6 +39,7 @@ export interface SendMessageInput {
   agentId?: string;
   workspaceId?: string;
   userId?: string;
+  orgRole?: string;
   connectionIds?: string[];
 }
 
@@ -42,6 +48,7 @@ export interface SendMessageResponse {
   message: string;
   toolCalls: IToolCall[];
   citations: IChatCitation[];
+  steps: IChatStep[];
 }
 
 export interface StreamCallbacks {
@@ -64,12 +71,122 @@ export interface StreamCallbacks {
     message: string;
     toolCalls: IToolCall[];
     citations: IChatCitation[];
+    steps: IChatStep[];
   }) => void;
   onError?: (error: Error) => void;
 }
 
 export class ChatService {
   constructor(private repo: ChatRepository = chatRepository) {}
+
+  /**
+   * Non-blocking thread initialization for POST /api/chat:
+   * - Validates optional agentId & active PUBLISHED version (or looks up default agent)
+   * - Creates ChatThread in MongoDB with initial user message
+   * - Does NOT invoke any LLM
+   */
+  async initializeThread(
+    ctx: WorkspaceContext,
+    input: { prompt: string; agentId?: string }
+  ): Promise<{
+    chatId: string;
+    agentId: string | null;
+    agentVersionId: string | null;
+    title: string;
+  }> {
+    const prompt = input.prompt.trim();
+    const title = prompt.replace(/\s+/g, " ").slice(0, 50) || "New Chat";
+    let resolvedAgentId: string | null = null;
+    let resolvedAgentVersionId: string | null = null;
+
+    if (input.agentId) {
+      const agent = await prisma.agent.findUnique({
+        where: { id: input.agentId },
+        include: { versions: { orderBy: { versionNumber: "desc" } } },
+      });
+
+      if (!agent || agent.workspaceId !== ctx.workspaceId) {
+        throw new NotFoundError(`Agent '${input.agentId}' not found in this workspace`);
+      }
+      if (agent.visibility === "PERSONAL" && agent.ownerUserId !== ctx.userId) {
+        throw new ForbiddenError("You do not have access to this personal agent");
+      }
+      if (agent.status === "ARCHIVED") {
+        throw new BadRequestError("Cannot start a conversation with an archived agent");
+      }
+
+      const activeVersion = agent.activeVersionId
+        ? agent.versions.find((v) => v.id === agent.activeVersionId)
+        : undefined;
+
+      if (activeVersion?.status === "REVOKED") {
+        const err = new ForbiddenError(
+          "This agent version has been revoked by an administrator."
+        );
+        (err as any).code = "VERSION_REVOKED";
+        throw err;
+      }
+
+      if (!activeVersion || activeVersion.status !== "PUBLISHED") {
+        throw new BadRequestError(
+          "Agent does not have a published version available for execution"
+        );
+      }
+
+      resolvedAgentId = agent.id;
+      resolvedAgentVersionId = activeVersion.id;
+    } else {
+      // Look up a PLATFORM/workspace default agent if one is configured
+      const defaultAgent = await prisma.agent.findFirst({
+        where: {
+          slug: "default-assistant",
+          status: "ACTIVE",
+          activeVersionId: { not: null },
+          OR: [
+            { workspaceId: ctx.workspaceId, visibility: "WORKSPACE" },
+            { workspaceId: "platform" },
+          ],
+        },
+        include: { versions: { orderBy: { versionNumber: "desc" } } },
+      });
+
+      if (defaultAgent?.activeVersionId) {
+        const activeVer = defaultAgent.versions.find(
+          (v) => v.id === defaultAgent.activeVersionId && v.status === "PUBLISHED"
+        );
+        if (activeVer) {
+          resolvedAgentId = defaultAgent.id;
+          resolvedAgentVersionId = activeVer.id;
+        }
+      }
+    }
+
+    const chatId = crypto.randomUUID();
+    await this.repo.createThread(
+      chatId,
+      title,
+      {
+        workspaceId: ctx.workspaceId,
+        userId: ctx.userId,
+        agentId: resolvedAgentId ?? undefined,
+        agentVersionId: resolvedAgentVersionId ?? undefined,
+      },
+      [
+        {
+          role: "user",
+          content: prompt,
+          createdAt: new Date(),
+        },
+      ]
+    );
+
+    return {
+      chatId,
+      agentId: resolvedAgentId,
+      agentVersionId: resolvedAgentVersionId,
+      title,
+    };
+  }
 
   /**
    * Executes a conversational agent turn:
@@ -89,8 +206,12 @@ export class ChatService {
 
     const titleSnippet = prompt.replace(/\s+/g, " ").slice(0, 50);
 
-    // 1. Ensure conversation thread exists in MongoDB
-    const thread = await this.repo.findOrCreate(chatId, titleSnippet);
+    // 1. Ensure conversation thread exists in MongoDB (scoped to workspace & user)
+    const thread = await this.repo.findOrCreate(chatId, titleSnippet, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      agentId: input.agentId,
+    });
 
     // 2. Initialize Model via Multi-Provider Factory
     const { model, provider, modelName } = modelFactoryService.createModel({
@@ -134,6 +255,7 @@ export class ChatService {
         agentId,
         workspaceId,
         userId: input.userId,
+        orgRole: input.orgRole,
         connectionIds: input.connectionIds,
       });
       dynamicTools = resolved.tools;
@@ -143,7 +265,7 @@ export class ChatService {
       logger.warn(`[ChatService] Could not resolve dynamic tools: ${err.message}`);
     }
 
-    const allTools = [...dynamicTools, vectorKnowledgeBaseTool];
+    const allTools = [...dynamicTools, vectorKnowledgeBaseTool, webSearchTool];
     const systemPrompt = this.buildSystemPrompt(activeConnections);
 
     const agent = createAgent({
@@ -171,9 +293,11 @@ export class ChatService {
       );
     }
 
-    // 5. Extract tool calls and citations from message chain
+    // 5. Extract tool calls, citations, and steps from message chain
     const extractedToolCalls: IToolCall[] = [];
     const extractedCitations: IChatCitation[] = [];
+    const extractedSteps: IChatStep[] = [];
+    const seenUrls = new Set<string>();
 
     if (Array.isArray(result.messages)) {
       for (const msg of result.messages) {
@@ -189,6 +313,14 @@ export class ChatService {
               taskName: meta.taskName,
               args: tc.args,
               toolCallId: tc.id,
+            });
+            extractedSteps.push({
+              type: "tool",
+              status: meta.statusPhase,
+              taskName: meta.taskName,
+              tool: toolName,
+              input: tc.args,
+              timestamp: new Date(),
             });
           }
         }
@@ -207,48 +339,19 @@ export class ChatService {
             matching.output = rawMsg.content;
           }
 
-          // Extract citations if this tool output was from search_knowledge_base
-          try {
-            const parsed =
-              typeof rawMsg.content === "string"
-                ? JSON.parse(rawMsg.content)
-                : rawMsg.content;
-            if (Array.isArray(parsed)) {
-              for (const item of parsed) {
-                if (item && item.url) {
-                  extractedCitations.push({
-                    index:
-                      typeof item.index === "number"
-                        ? item.index
-                        : extractedCitations.length + 1,
-                    pageId: item.pageId,
-                    crawlerId: item.crawlerId,
-                    url: item.url,
-                    title: item.title,
-                    score:
-                      typeof item.score === "number" ? item.score : undefined,
-                    snippet:
-                      typeof item.content === "string"
-                        ? item.content.slice(0, 300)
-                        : undefined,
-                  });
-                }
-              }
+          const newCitations = this.extractCitationsFromOutput(rawMsg.content, seenUrls);
+          if (newCitations.length > 0) {
+            extractedCitations.push(...newCitations);
+            const matchingStep = [...extractedSteps]
+              .reverse()
+              .find((s) => s.type === "tool" && s.tool === matching?.name && !s.citations);
+            if (matchingStep) {
+              matchingStep.citations = newCitations;
             }
-          } catch {
-            // Not a JSON citation list
           }
         }
       }
     }
-
-    // Deduplicate citations by URL
-    const seenUrls = new Set<string>();
-    const uniqueCitations = extractedCitations.filter((c) => {
-      if (seenUrls.has(c.url)) return false;
-      seenUrls.add(c.url);
-      return true;
-    });
 
     // Extract the final assistant reply
     const assistantContent =
@@ -269,7 +372,8 @@ export class ChatService {
         content: assistantContent,
         toolCalls:
           extractedToolCalls.length > 0 ? extractedToolCalls : undefined,
-        citations: uniqueCitations.length > 0 ? uniqueCitations : undefined,
+        citations: extractedCitations.length > 0 ? extractedCitations : undefined,
+        steps: extractedSteps.length > 0 ? extractedSteps : undefined,
         createdAt: new Date(),
       },
     ];
@@ -280,7 +384,8 @@ export class ChatService {
       chatId,
       message: assistantContent,
       toolCalls: extractedToolCalls,
-      citations: uniqueCitations,
+      citations: extractedCitations,
+      steps: extractedSteps,
     };
   }
 
@@ -319,6 +424,14 @@ Use these tools whenever the user's request involves those services. If a tool r
       };
     }
 
+    if (toolName === "web_search") {
+      return {
+        uniqueToolName: "web_search",
+        taskName: "Web: Search",
+        statusPhase: "Searching",
+      };
+    }
+
     return (
       toolMetaMap.get(toolName) || {
         uniqueToolName: toolName,
@@ -349,10 +462,7 @@ Use these tools whenever the user's request involves those services. If a tool r
           if (item && item.url && !seenUrls.has(item.url)) {
             seenUrls.add(item.url);
             citations.push({
-              index:
-                typeof item.index === "number"
-                  ? item.index
-                  : seenUrls.size,
+              index: seenUrls.size,
               pageId: item.pageId,
               crawlerId: item.crawlerId,
               url: item.url,
@@ -402,8 +512,12 @@ Use these tools whenever the user's request involves those services. If a tool r
       taskName: "Understanding your request",
     });
 
-    // 1. Ensure conversation thread exists in MongoDB
-    const thread = await this.repo.findOrCreate(chatId, titleSnippet);
+    // 1. Ensure conversation thread exists in MongoDB (scoped to workspace & user)
+    const thread = await this.repo.findOrCreate(chatId, titleSnippet, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      agentId: input.agentId,
+    });
 
     // 2. Initialize Streaming Model via Multi-Provider Factory
     const { model, provider, modelName } = modelFactoryService.createModel({
@@ -447,6 +561,7 @@ Use these tools whenever the user's request involves those services. If a tool r
         agentId,
         workspaceId,
         userId: input.userId,
+        orgRole: input.orgRole,
         connectionIds: input.connectionIds,
         onApprovalRequired: (payload) => {
           callbacks.onApprovalRequired?.(payload);
@@ -459,7 +574,7 @@ Use these tools whenever the user's request involves those services. If a tool r
       logger.warn(`[ChatService] Could not resolve dynamic tools: ${err.message}`);
     }
 
-    const allTools = [...dynamicTools, vectorKnowledgeBaseTool];
+    const allTools = [...dynamicTools, vectorKnowledgeBaseTool, webSearchTool];
     const systemPrompt = this.buildSystemPrompt(activeConnections);
 
     const agent = createAgent({
@@ -471,10 +586,25 @@ Use these tools whenever the user's request involves those services. If a tool r
 
     const extractedToolCalls: IToolCall[] = [];
     const extractedCitations: IChatCitation[] = [];
+    const extractedSteps: IChatStep[] = [
+      { type: "status", status: "Working", taskName: "Understanding your request", timestamp: new Date() },
+      { type: "status", status: "Solving", taskName: "Planning response", timestamp: new Date() },
+    ];
     const seenUrls = new Set<string>();
     let fullAssistantContent = "";
     let hasEmittedComposing = false;
     let usedNonStreamingFallback = false;
+
+    const emitStatus = (status: AgentStatusPhase, taskName?: string, tool?: string) => {
+      extractedSteps.push({
+        type: "status",
+        status,
+        taskName,
+        ...(tool ? { tool } : {}),
+        timestamp: new Date(),
+      });
+      callbacks.onStatus?.({ status, taskName, ...(tool ? { tool } : {}) });
+    };
 
     callbacks.onStatus?.({
       status: "Solving",
@@ -521,10 +651,7 @@ Use these tools whenever the user's request involves those services. If a tool r
             if (textChunk) {
               if (!hasEmittedComposing) {
                 hasEmittedComposing = true;
-                callbacks.onStatus?.({
-                  status: "Composing",
-                  taskName: "Composing response",
-                });
+                emitStatus("Composing", "Composing response");
               }
               fullAssistantContent += textChunk;
               callbacks.onToken?.(textChunk);
@@ -555,6 +682,14 @@ Use these tools whenever the user's request involves those services. If a tool r
             args: event.data?.input,
           };
           extractedToolCalls.push(toolCall);
+          extractedSteps.push({
+            type: "tool",
+            status: meta.statusPhase,
+            taskName: meta.taskName,
+            tool: toolName,
+            input: toolCall.args,
+            timestamp: new Date(),
+          });
           callbacks.onStatus?.({
             status: meta.statusPhase,
             taskName: meta.taskName,
@@ -583,6 +718,12 @@ Use these tools whenever the user's request involves those services. If a tool r
           const citations = this.extractCitationsFromOutput(toolOutput, seenUrls);
           if (citations.length > 0) {
             extractedCitations.push(...citations);
+            const matchingStep =
+              [...extractedSteps].reverse().find((s) => s.type === "tool" && s.tool === toolName && !s.citations) ||
+              extractedSteps.at(-1);
+            if (matchingStep && matchingStep.type === "tool") {
+              matchingStep.citations = citations;
+            }
           }
 
           callbacks.onToolEnd?.({
@@ -591,10 +732,7 @@ Use these tools whenever the user's request involves those services. If a tool r
             citations: citations.length > 0 ? citations : undefined,
           });
           hasEmittedComposing = false;
-          callbacks.onStatus?.({
-            status: "Solving",
-            taskName: "Analyzing results",
-          });
+          emitStatus("Solving", "Analyzing results");
         }
       }
           break;
@@ -734,6 +872,7 @@ Use these tools whenever the user's request involves those services. If a tool r
             content: fullAssistantContent,
             toolCalls: extractedToolCalls.length > 0 ? extractedToolCalls : undefined,
             citations: extractedCitations.length > 0 ? extractedCitations : undefined,
+            steps: extractedSteps.length > 0 ? extractedSteps : undefined,
             createdAt: new Date(),
           },
         ];
@@ -745,6 +884,7 @@ Use these tools whenever the user's request involves those services. If a tool r
           message: fullAssistantContent,
           toolCalls: extractedToolCalls,
           citations: extractedCitations,
+          steps: extractedSteps,
         });
       }
     } catch (err: unknown) {
@@ -761,22 +901,22 @@ Use these tools whenever the user's request involves those services. If a tool r
   /**
    * Retrieves a chat thread with all its messages.
    */
-  async getThread(chatId: string): Promise<IChatThread | null> {
-    return this.repo.findByChatId(chatId);
+  async getThread(chatId: string, scope?: ChatThreadScope): Promise<IChatThread | null> {
+    return this.repo.findByChatId(chatId, scope);
   }
 
   /**
    * Lists chat threads.
    */
-  async listThreads(limit = 50): Promise<ChatThreadSummary[]> {
-    return this.repo.listThreads(limit);
+  async listThreads(limit = 50, scope?: ChatThreadScope): Promise<ChatThreadSummary[]> {
+    return this.repo.listThreads(limit, scope);
   }
 
   /**
    * Deletes a chat thread.
    */
-  async deleteThread(chatId: string): Promise<boolean> {
-    return this.repo.deleteThread(chatId);
+  async deleteThread(chatId: string, scope?: ChatThreadScope): Promise<boolean> {
+    return this.repo.deleteThread(chatId, scope);
   }
 }
 

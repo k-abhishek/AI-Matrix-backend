@@ -7,32 +7,69 @@ export interface ChatThreadSummary {
   createdAt?: Date;
 }
 
+export interface ChatThreadScope {
+  workspaceId?: string;
+  userId?: string;
+  agentId?: string;
+  agentVersionId?: string;
+}
+
 export class ChatRepository {
   /**
-   * Retrieves a full chat thread by its unique chatId.
+   * Builds a MongoDB filter scoped by workspaceId (and optionally userId) when provided.
    */
-  async findByChatId(chatId: string): Promise<IChatThread | null> {
-    return ChatThread.findOne({ chatId });
+  private buildScopeFilter(chatId?: string, scope?: ChatThreadScope): Record<string, any> {
+    const filter: Record<string, any> = {};
+    if (chatId !== undefined) {
+      filter.chatId = chatId;
+    }
+    if (scope?.workspaceId) {
+      filter.workspaceId = scope.workspaceId;
+    }
+    if (scope?.userId) {
+      filter.userId = scope.userId;
+    }
+    return filter;
   }
 
   /**
-   * Creates a new chat thread document with an optional title.
+   * Retrieves a full chat thread by its unique chatId (optionally scoped to workspace/user).
    */
-  async createThread(chatId: string, title?: string): Promise<IChatThread> {
+  async findByChatId(chatId: string, scope?: ChatThreadScope): Promise<IChatThread | null> {
+    return ChatThread.findOne(this.buildScopeFilter(chatId, scope));
+  }
+
+  /**
+   * Creates a new chat thread document with an optional title, tenant scope, and initial messages.
+   */
+  async createThread(
+    chatId: string,
+    title?: string,
+    scope?: ChatThreadScope,
+    initialMessages: IChatMessage[] = []
+  ): Promise<IChatThread> {
     return ChatThread.create({
       chatId,
+      ...(scope?.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+      ...(scope?.userId ? { userId: scope.userId } : {}),
+      ...(scope?.agentId ? { agentId: scope.agentId } : {}),
+      ...(scope?.agentVersionId ? { agentVersionId: scope.agentVersionId } : {}),
       title: title || 'New Chat',
-      messages: [],
+      messages: initialMessages,
     });
   }
 
   /**
    * Finds an existing thread or creates it if not found.
    */
-  async findOrCreate(chatId: string, initialTitle?: string): Promise<IChatThread> {
-    let thread = await this.findByChatId(chatId);
+  async findOrCreate(
+    chatId: string,
+    initialTitle?: string,
+    scope?: ChatThreadScope
+  ): Promise<IChatThread> {
+    let thread = await this.findByChatId(chatId, scope);
     if (!thread) {
-      thread = await this.createThread(chatId, initialTitle);
+      thread = await this.createThread(chatId, initialTitle, scope);
     } else if (initialTitle && (!thread.title || thread.title.trim() === '')) {
       thread.title = initialTitle;
       await thread.save();
@@ -83,8 +120,15 @@ export class ChatRepository {
   /**
    * Retrieves a lightweight list of conversation threads sorted by recency.
    */
-  async listThreads(limit = 50): Promise<ChatThreadSummary[]> {
-    const threads = await ChatThread.find({}, { chatId: 1, title: 1, messages: 1, updatedAt: 1, createdAt: 1 })
+  async listThreads(limit = 50, scope?: ChatThreadScope): Promise<ChatThreadSummary[]> {
+    const filter = {
+      ...this.buildScopeFilter(undefined, scope),
+      status: { $ne: 'ARCHIVED' },
+    };
+    const threads = await ChatThread.find(
+      filter,
+      { chatId: 1, title: 1, messages: 1, updatedAt: 1, createdAt: 1 }
+    )
       .slice('messages', 1)
       .sort({ updatedAt: -1 })
       .limit(limit)
@@ -107,10 +151,10 @@ export class ChatRepository {
   }
 
   /**
-   * Deletes a chat conversation thread by chatId.
+   * Deletes a chat conversation thread by chatId (optionally scoped to workspace/user).
    */
-  async deleteThread(chatId: string): Promise<boolean> {
-    const result = await ChatThread.findOneAndDelete({ chatId });
+  async deleteThread(chatId: string, scope?: ChatThreadScope): Promise<boolean> {
+    const result = await ChatThread.findOneAndDelete(this.buildScopeFilter(chatId, scope));
     return !!result;
   }
 }

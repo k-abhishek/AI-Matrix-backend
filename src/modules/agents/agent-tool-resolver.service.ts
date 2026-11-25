@@ -44,6 +44,7 @@ export interface ResolveToolsOptions {
   agentId: string;
   workspaceId: string;
   userId?: string;
+  orgRole?: string;
   connectionIds?: string[];
   onApprovalRequired?: (payload: ApprovalRequiredEvent) => void;
 }
@@ -93,7 +94,7 @@ export class AgentToolResolverService {
    * and returns LangChain tools alongside UI display metadata (taskName & statusPhase).
    */
   async resolveToolsWithMeta(options: ResolveToolsOptions): Promise<ResolvedAgentToolsResult> {
-    const { agentId, workspaceId, userId, connectionIds, onApprovalRequired } = options;
+    const { agentId, workspaceId, userId, orgRole, connectionIds, onApprovalRequired } = options;
     const connectionFilter =
       connectionIds && connectionIds.length > 0 ? { in: connectionIds } : undefined;
 
@@ -207,6 +208,7 @@ export class AgentToolResolverService {
                 parameters: input,
                 workspaceId,
                 userId,
+                orgRole,
                 agentId,
               });
 

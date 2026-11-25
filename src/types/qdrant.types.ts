@@ -7,6 +7,11 @@ export interface QdrantPointPayload {
   chunkIndex: number;
   contentHash: string;
   crawledAt: string;
+  knowledgeBaseId?: string;
+  scope?: 'PLATFORM' | 'WORKSPACE';
+  workspaceId?: string | null;
+  documentId?: string;
+  status?: string;
   [key: string]: unknown;
 }
 
@@ -15,4 +20,3 @@ export interface CollectionStats {
   vectorsCount: number;
   status: string;
 }
-

@@ -74,11 +74,13 @@ const envSchema = z.object({
   GOOGLE_API_KEY: z.string().optional().or(z.literal('')),
 
   // Agent & LLM
-  AGENT_PROVIDER: z.enum(['google', 'groq', 'openai', 'anthropic', 'auto']).default('auto'),
+  AGENT_PROVIDER: z.enum(['google', 'groq', 'openai', 'anthropic', 'ollama', 'auto']).default('auto'),
   GEMINI_API_KEY: z.string().optional().or(z.literal('')),
   GROQ_API_KEY: z.string().optional().or(z.literal('')),
   OPENAI_API_KEY: z.string().optional().or(z.literal('')),
   ANTHROPIC_API_KEY: z.string().optional().or(z.literal('')),
+  OLLAMA_URL: z.string().optional().default(''),
+  OLLAMA_MODEL: z.string().optional().default(''),
   AGENT_MODEL: z.string().default(process.env.GEMINI_MODEL || process.env.GROQ_MODEL || 'gemini-3.5-flash-lite'),
 
   // Crawler
@@ -95,6 +97,9 @@ const envSchema = z.object({
 
   // Brandfetch API Key (for server-side Brand API)
   BRANDFETCH_API_KEY: z.string().optional().default(''),
+
+  // Exa Web Search API Key
+  EXA_API_KEY: z.string().optional().default(''),
 
   // Chunking
   CHUNK_SIZE: z.coerce.number().int().positive().default(DEFAULT_CONFIG.CHUNK_SIZE),

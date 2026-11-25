@@ -75,6 +75,7 @@ export class QdrantService {
             distance: this.distance,
           },
         });
+        await this.ensurePayloadIndexes(client, collectionName);
         logger.info(`Collection '${collectionName}' created successfully.`);
       } else {
         logger.debug(`Qdrant collection '${collectionName}' exists and is ready.`);
@@ -88,13 +89,81 @@ export class QdrantService {
   }
 
   /**
+   * Ensures keyword payload indexes exist for tenant-isolated KB filtering.
+   */
+  async ensurePayloadIndexes(client: any, collectionName: string): Promise<void> {
+    const indexFields = ['knowledgeBaseId', 'workspaceId', 'scope', 'status'];
+    for (const fieldName of indexFields) {
+      try {
+        await client.createPayloadIndex(collectionName, {
+          field_name: fieldName,
+          field_schema: 'keyword',
+        });
+      } catch {
+        // Index may already exist or Qdrant mock may not implement createPayloadIndex
+      }
+    }
+  }
+
+  /**
+   * Builds a strict Qdrant payload filter enforcing workspace & platform KB isolation.
+   */
+  buildTenantFilter(options: {
+    workspaceId: string;
+    workspaceKbIds: string[];
+    platformKbIds?: string[];
+    metadataFilters?: Record<string, any>;
+  }): Record<string, any> {
+    const { workspaceId, workspaceKbIds, platformKbIds = [], metadataFilters } = options;
+    const allAllowedKbIds = [...new Set([...workspaceKbIds, ...platformKbIds])];
+
+    const must: any[] = [
+      { key: 'status', match: { value: 'ACTIVE' } },
+      { key: 'knowledgeBaseId', match: { any: allAllowedKbIds } },
+    ];
+
+    const scopeClauses: any[] = [];
+    if (workspaceKbIds.length > 0) {
+      scopeClauses.push({
+        must: [
+          { key: 'scope', match: { value: 'WORKSPACE' } },
+          { key: 'workspaceId', match: { value: workspaceId } },
+          { key: 'knowledgeBaseId', match: { any: workspaceKbIds } },
+        ],
+      });
+    }
+    if (platformKbIds.length > 0) {
+      scopeClauses.push({
+        must: [
+          { key: 'scope', match: { value: 'PLATFORM' } },
+          { key: 'knowledgeBaseId', match: { any: platformKbIds } },
+        ],
+      });
+    }
+
+    if (metadataFilters) {
+      for (const [k, v] of Object.entries(metadataFilters)) {
+        if (v !== undefined && v !== null) {
+          must.push({ key: k, match: { value: v } });
+        }
+      }
+    }
+
+    return {
+      must,
+      should: scopeClauses,
+    };
+  }
+
+  /**
    * Upserts a batch of chunk vectors with their required payloads via QdrantVectorStore.
    */
   async upsertChunks(
     chunks: ChunkItem[],
     crawledAtOrEmbeddings: string | number[][],
     maybeCrawledAtOrCollection?: string,
-    maybeCollectionName?: string
+    maybeCollectionName?: string,
+    extraPayload?: Partial<QdrantPointPayload>
   ): Promise<{ upsertedCount: number; pointIds: string[] }> {
     if (chunks.length === 0) {
       return { upsertedCount: 0, pointIds: [] };
@@ -133,6 +202,12 @@ export class QdrantService {
         chunkIndex: chunk.chunkIndex,
         contentHash: chunk.contentHash,
         crawledAt,
+        ...(chunk.knowledgeBaseId ? { knowledgeBaseId: chunk.knowledgeBaseId } : {}),
+        ...(chunk.scope ? { scope: chunk.scope } : {}),
+        ...(chunk.workspaceId !== undefined ? { workspaceId: chunk.workspaceId } : {}),
+        ...(chunk.documentId ? { documentId: chunk.documentId } : {}),
+        ...(chunk.status ? { status: chunk.status } : {}),
+        ...(extraPayload || {}),
       };
 
       documents.push(

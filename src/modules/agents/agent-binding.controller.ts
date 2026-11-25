@@ -1,11 +1,10 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import agentBindingService from './agent-binding.service';
-import { AuthenticatedRequest } from '../../middleware/auth';
+import { getWorkspaceContext } from '../../middleware/auth';
 
 export class AgentBindingController {
   private getWorkspaceId(req: FastifyRequest): string {
-    const authReq = req as AuthenticatedRequest;
-    return authReq.auth?.orgId || authReq.userId || 'default_user';
+    return getWorkspaceContext(req).workspaceId;
   }
 
   async list(req: FastifyRequest<{ Params: { agentId: string } }>, reply: FastifyReply) {

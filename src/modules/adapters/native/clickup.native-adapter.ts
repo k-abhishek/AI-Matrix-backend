@@ -17,9 +17,18 @@ export class ClickUpNativeAdapter extends BaseNativeAdapter {
     return creds.apiKey || creds.accessToken || creds.token || '';
   }
 
-  private getHeaders(token: string): Record<string, string> {
+  private isOAuthToken(creds: Record<string, any>): boolean {
+    return Boolean(!creds.apiKey && creds.accessToken);
+  }
+
+  private getHeaders(token: string, isOAuth = false): Record<string, string> {
+    const authValue =
+      isOAuth && !token.startsWith('Bearer ') && !token.startsWith('pk_')
+        ? `Bearer ${token}`
+        : token;
+
     return {
-      Authorization: token,
+      Authorization: authValue,
       'Content-Type': 'application/json',
     };
   }
@@ -28,12 +37,13 @@ export class ClickUpNativeAdapter extends BaseNativeAdapter {
     const startTime = Date.now();
     const creds = await this.resolveCredentials(context);
     const token = this.getToken(creds);
+    const isOAuth = this.isOAuthToken(creds);
 
     if (!token) {
       return {
         status: 'DISCONNECTED',
         isHealthy: false,
-        message: 'No ClickUp Personal API Token (pk_...) provided.',
+        message: 'No ClickUp Personal API Token (pk_...) or OAuth access token provided.',
         testedAt: new Date(),
       };
     }
@@ -51,7 +61,7 @@ export class ClickUpNativeAdapter extends BaseNativeAdapter {
     try {
       const res = await fetch(`${this.CLICKUP_API_URL}/user`, {
         method: 'GET',
-        headers: this.getHeaders(token),
+        headers: this.getHeaders(token, isOAuth),
       });
 
       const latencyMs = Date.now() - startTime;
@@ -187,7 +197,7 @@ export class ClickUpNativeAdapter extends BaseNativeAdapter {
     const startTime = Date.now();
     const creds = await this.resolveCredentials(context);
     const token = this.getToken(creds);
-    const headers = this.getHeaders(token);
+    const headers = this.getHeaders(token, this.isOAuthToken(creds));
 
     if (process.env.NODE_ENV === 'test' && token.includes('mock')) {
       return {

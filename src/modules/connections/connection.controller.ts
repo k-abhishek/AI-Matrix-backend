@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import connectionService from './connection.service';
-import { AuthenticatedRequest } from '../../middleware/auth';
+import { getWorkspaceContext } from '../../middleware/auth';
 
 export const createConnectionSchema = z.object({
   connectorDefinitionId: z.string().optional(),
@@ -33,17 +33,12 @@ export const updateConnectionSchema = z.object({
 
 export class ConnectionController {
   private getWorkspaceId(req: FastifyRequest): string {
-    const authReq = req as AuthenticatedRequest;
-    // Prefer Clerk organizationId, fallback to userId
-    const orgId = authReq.auth?.orgId;
-    const userId = authReq.userId || 'default_user';
-    return orgId || userId;
+    return getWorkspaceContext(req).workspaceId;
   }
 
   async create(req: FastifyRequest, reply: FastifyReply) {
     const parsed = createConnectionSchema.parse(req.body);
-    const workspaceId = this.getWorkspaceId(req);
-    const userId = (req as AuthenticatedRequest).userId || 'default_user';
+    const { workspaceId, userId } = getWorkspaceContext(req);
 
     const connection = await connectionService.createConnection(workspaceId, userId, parsed);
     return reply.status(201).send({
@@ -54,8 +49,7 @@ export class ConnectionController {
 
   async connect(req: FastifyRequest, reply: FastifyReply) {
     try {
-      const workspaceId = this.getWorkspaceId(req);
-      const userId = (req as AuthenticatedRequest).userId || 'default_user';
+      const { workspaceId, userId } = getWorkspaceContext(req);
       const body = req.body as any;
 
       if (!body || typeof body !== 'object') {

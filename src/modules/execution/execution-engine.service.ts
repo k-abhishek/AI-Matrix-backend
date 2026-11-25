@@ -6,7 +6,7 @@ import customRestConnectorAdapter from '../adapters/rest/custom-rest.adapter';
 import gmailSendFallbackAdapter from '../adapters/native/fallback/gmail-send-fallback';
 import nativeAdapterRegistry from '../adapters/native/native-adapter.registry';
 import authManager from '../connections/auth.manager';
-import { AppError, NotFoundError } from '../../lib/errors';
+import { AppError, ForbiddenError, NotFoundError } from '../../lib/errors';
 import logger from '../../lib/logger';
 
 export interface UnifiedExecutionRequest {
@@ -15,6 +15,7 @@ export interface UnifiedExecutionRequest {
   parameters: Record<string, any>;
   workspaceId: string;
   userId?: string;
+  orgRole?: string;
   agentId?: string;
   approvalConfirmed?: boolean;
   timeoutMs?: number;
@@ -66,6 +67,26 @@ export class ExecutionEngineService {
 
     if (!connection) {
       throw new NotFoundError(`Connection '${connectionId}' not found in workspace`);
+    }
+
+    // 1b. Enforce explicit ConnectorPermission rules when configured for this connection
+    if (prisma.connectorPermission?.findMany) {
+      const permissions = await prisma.connectorPermission.findMany({
+        where: { connectionId, workspaceId },
+      });
+      if (permissions.length > 0) {
+        const isAllowed = permissions.some((p) => {
+          if (!p.canExecute) return false;
+          const userMatches = !p.userId || p.userId === request.userId;
+          const roleMatches = !p.role || p.role === request.orgRole;
+          return userMatches && roleMatches;
+        });
+        if (!isAllowed) {
+          throw new ForbiddenError(
+            `User does not have permission to execute tools on connection '${connectionId}'`
+          );
+        }
+      }
     }
 
     const toolRecord = connection.tools[0];

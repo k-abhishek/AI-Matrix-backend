@@ -23,14 +23,13 @@ export class ClickUpOAuthProvider implements IOAuthProviderHandler {
       throw err;
     }
 
-    const redirectParam = encodeURIComponent(params.redirectUri);
+    const query = new URLSearchParams({
+      client_id: env.CLICKUP_CLIENT_ID,
+      redirect_uri: params.redirectUri,
+      state: params.state,
+    });
 
-    return (
-      `https://app.clickup.com/api?` +
-      `client_id=${env.CLICKUP_CLIENT_ID}` +
-      `&redirect_uri=${redirectParam}` +
-      `&state=${params.state}`
-    );
+    return `https://app.clickup.com/api?${query.toString()}`;
   }
 
   async exchangeCode(params: {

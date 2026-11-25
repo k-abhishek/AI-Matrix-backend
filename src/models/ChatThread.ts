@@ -10,6 +10,16 @@ export interface IChatCitation {
   snippet?: string;
 }
 
+export interface IChatStep {
+  type: 'status' | 'tool' | 'approval';
+  status: string;
+  taskName?: string;
+  tool?: string;
+  input?: Record<string, any>;
+  citations?: IChatCitation[];
+  timestamp: Date;
+}
+
 export interface IToolCall {
   name: string;
   taskName?: string;
@@ -23,11 +33,17 @@ export interface IChatMessage {
   content: string;
   toolCalls?: IToolCall[];
   citations?: IChatCitation[];
+  steps?: IChatStep[];
   createdAt: Date;
 }
 
 export interface IChatThread extends Document {
   chatId: string;
+  workspaceId?: string;
+  userId?: string;
+  agentId?: string;
+  agentVersionId?: string;
+  status?: 'ACTIVE' | 'ARCHIVED';
   title?: string;
   summary?: string;
   summarizedMessageCount?: number;
@@ -45,6 +61,29 @@ const CitationSchema = new Schema<IChatCitation>(
     title: { type: String },
     score: { type: Number },
     snippet: { type: String },
+  },
+  { _id: false }
+);
+
+const ChatStepSchema = new Schema<IChatStep>(
+  {
+    type: {
+      type: String,
+      enum: ['status', 'tool', 'approval'],
+      required: true,
+    },
+    status: { type: String, required: true },
+    taskName: { type: String },
+    tool: { type: String },
+    input: { type: Schema.Types.Mixed },
+    citations: {
+      type: [CitationSchema],
+      default: undefined,
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { _id: false }
 );
@@ -69,7 +108,7 @@ const ChatMessageSchema = new Schema<IChatMessage>(
     },
     content: {
       type: String,
-      required: true,
+      default: '',
     },
     toolCalls: {
       type: [ToolCallSchema],
@@ -77,6 +116,10 @@ const ChatMessageSchema = new Schema<IChatMessage>(
     },
     citations: {
       type: [CitationSchema],
+      default: undefined,
+    },
+    steps: {
+      type: [ChatStepSchema],
       default: undefined,
     },
     createdAt: {
@@ -93,6 +136,27 @@ const ChatThreadSchema = new Schema<IChatThread>(
       type: String,
       required: true,
       unique: true,
+      index: true,
+    },
+    workspaceId: {
+      type: String,
+      index: true,
+    },
+    userId: {
+      type: String,
+      index: true,
+    },
+    agentId: {
+      type: String,
+      index: true,
+    },
+    agentVersionId: {
+      type: String,
+    },
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'ARCHIVED'],
+      default: 'ACTIVE',
       index: true,
     },
     title: {
@@ -116,6 +180,8 @@ const ChatThreadSchema = new Schema<IChatThread>(
     timestamps: true,
   }
 );
+
+ChatThreadSchema.index({ workspaceId: 1, userId: 1, updatedAt: -1 });
 
 export const ChatThread = mongoose.models.ChatThread || mongoose.model<IChatThread>('ChatThread', ChatThreadSchema);
 export default ChatThread;

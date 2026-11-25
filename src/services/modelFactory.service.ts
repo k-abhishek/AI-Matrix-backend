@@ -3,10 +3,11 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatGroq } from "@langchain/groq";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOllama } from "@langchain/ollama";
 import env from "../config/env";
 import logger from "../lib/logger";
 
-export type ModelProvider = "google" | "groq" | "openai" | "anthropic";
+export type ModelProvider = "google" | "groq" | "openai" | "anthropic" | "ollama";
 
 export interface CreateModelOptions {
   provider?: ModelProvider;
@@ -31,6 +32,10 @@ export class ModelFactoryService {
    * Resolves the active model provider based on configuration, model name, and available keys.
    */
   resolveProvider(explicitProvider?: ModelProvider, modelName?: string): ModelProvider {
+    if (env.NODE_ENV === "development") {
+      return "ollama";
+    }
+
     if (explicitProvider) {
       return explicitProvider;
     }
@@ -173,6 +178,40 @@ export class ModelFactoryService {
         return { model, provider, modelName };
       }
 
+      case "ollama": {
+        const rawBaseUrl = (
+          env.OLLAMA_URL ||
+          process.env.OLLAMA_URL ||
+          "http://localhost:11434"
+        )
+          .trim()
+          .replace(/\/+$/, "");
+        const baseUrl = rawBaseUrl.endsWith("/v1")
+          ? rawBaseUrl.slice(0, -3)
+          : rawBaseUrl;
+        const modelName =
+          env.NODE_ENV === "development"
+            ? env.OLLAMA_MODEL ||
+              process.env.OLLAMA_MODEL ||
+              options.model ||
+              env.AGENT_MODEL ||
+              "gemma4"
+            : options.model ||
+              env.OLLAMA_MODEL ||
+              process.env.OLLAMA_MODEL ||
+              env.AGENT_MODEL;
+
+        const model = new ChatOllama({
+          baseUrl,
+          model: modelName,
+          maxRetries,
+          streaming,
+          think: false,
+        });
+
+        return { model, provider, modelName };
+      }
+
       default:
         throw new Error(`Unsupported model provider: ${provider}`);
     }
@@ -203,8 +242,8 @@ export class ModelFactoryService {
         rawUsage.cachedContentTokenCount ||
         0;
     }
-    // OpenAI and Groq usage format
-    else if (provider === "openai" || provider === "groq") {
+    // OpenAI, Groq, and Ollama usage format
+    else if (provider === "openai" || provider === "groq" || provider === "ollama") {
       inputTokens = rawUsage.prompt_tokens || rawUsage.input_tokens || 0;
       outputTokens = rawUsage.completion_tokens || rawUsage.output_tokens || 0;
       cachedTokens =

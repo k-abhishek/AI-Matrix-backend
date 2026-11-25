@@ -474,8 +474,16 @@ export class CrawlService {
       await storageService.checkAndEnforceBudget(chunks, 0, collectionName);
       const estimatedBytes = storageService.estimateBatchBytes(chunks);
 
+      const enrichedChunks = chunks.map((c) => ({
+        ...c,
+        ...(crawler.knowledgeBaseId ? { knowledgeBaseId: crawler.knowledgeBaseId } : {}),
+        scope: crawler.scope,
+        workspaceId: crawler.scope === 'PLATFORM' ? null : (crawler.workspaceId ?? null),
+        status: 'ACTIVE' as const,
+      }));
+
       const crawledAt = new Date().toISOString();
-      const { pointIds } = await qdrantService.upsertChunks(chunks, crawledAt, collectionName);
+      const { pointIds } = await qdrantService.upsertChunks(enrichedChunks, crawledAt, collectionName);
 
       if (existingPage && existingPage.chunks.length > chunks.length) {
         const obsoletePointIds = existingPage.chunks

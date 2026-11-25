@@ -8,6 +8,11 @@ export interface ChunkItem {
   content: string;
   contentHash: string;
   tokenCount: number;
+  knowledgeBaseId?: string;
+  scope?: 'PLATFORM' | 'WORKSPACE';
+  workspaceId?: string | null;
+  documentId?: string;
+  status?: 'ACTIVE' | 'ARCHIVED' | 'QUARANTINED';
 }
 
 export interface ChunkOptions {

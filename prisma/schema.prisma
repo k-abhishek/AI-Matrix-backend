@@ -38,12 +38,18 @@ model Crawler {
   settings        Json?
   enabled         Boolean        @default(true)
   isRunning       Boolean        @default(false)
+  scope           KnowledgeScope @default(WORKSPACE)
+  workspaceId     String?
+  knowledgeBaseId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   crawlRuns       CrawlRun[]
   crawledPages    CrawledPage[]
+  knowledgeBase   KnowledgeBase? @relation(fields: [knowledgeBaseId], references: [id], onDelete: SetNull)
 
+  @@index([workspaceId])
+  @@index([knowledgeBaseId])
   @@map("crawlers")
 }
 
@@ -393,5 +399,355 @@ model ConnectorAuditLog {
   @@index([connectionId])
   @@index([createdAt])
   @@map("connector_audit_logs")
+}
+
+// ==========================================
+// CONFIGURABLE AGENT PLATFORM ENUMS
+// ==========================================
+
+enum AgentVisibility {
+  PERSONAL
+  WORKSPACE
+}
+
+enum AgentStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AgentVersionStatus {
+  DRAFT
+  VALIDATED
+  PUBLISHED
+  DEPRECATED
+  REVOKED
+}
+
+enum AgentApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// ==========================================
+// CONFIGURABLE AGENT PLATFORM MODELS
+// ==========================================
+
+model Agent {
+  id              String          @id @default(uuid())
+  workspaceId     String
+  createdByUserId String
+  ownerUserId     String
+  visibility      AgentVisibility @default(PERSONAL)
+  name            String
+  description     String?
+  slug            String
+  status          AgentStatus     @default(ACTIVE)
+  activeVersionId String?
+  draftConfig     Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  versions        AgentVersion[]
+  knowledgeBases  AgentKnowledgeBase[]
+  skills          AgentSkill[]
+  toolGrants      AgentToolGrant[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status])
+  @@index([workspaceId, visibility, ownerUserId])
+  @@map("agents")
+}
+
+model AgentVersion {
+  id                 String             @id @default(uuid())
+  agentId            String
+  versionNumber      Int
+  status             AgentVersionStatus @default(DRAFT)
+  configHash         String
+  systemInstructions String
+  provider           String?
+  model              String?
+  temperature        Float              @default(0.7)
+  maxTokens          Int?
+  maxIterations      Int                @default(15)
+  timeoutMs          Int                @default(60000)
+  memoryConfig       Json?
+  executionPolicy    Json?
+  publishedAt        DateTime?
+  publishedByUserId  String?
+  revokedAt          DateTime?
+  revokedByUserId    String?
+  revokedReason      String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  agent              Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  approvals          AgentApproval[]
+  knowledgeBases     AgentKnowledgeBase[]
+  skills             AgentSkill[]
+  toolGrants         AgentToolGrant[]
+
+  @@unique([agentId, versionNumber])
+  @@index([agentId, status])
+  @@map("agent_versions")
+}
+
+model AgentApproval {
+  id               String              @id @default(uuid())
+  workspaceId      String
+  runId            String
+  conversationId   String
+  agentVersionId   String
+  userId           String
+  toolName         String
+  connectionId     String?
+  interruptId      String?
+  parameters       Json?
+  status           AgentApprovalStatus @default(PENDING)
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  agentVersion     AgentVersion        @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([runId])
+  @@index([conversationId])
+  @@map("agent_approvals")
+}
+
+// ==========================================
+// KNOWLEDGE BASE & SKILL & TOOL GRANT ENUMS
+// ==========================================
+
+enum KnowledgeScope {
+  PLATFORM
+  WORKSPACE
+}
+
+enum KnowledgeBaseStatus {
+  ACTIVE
+  ARCHIVED
+  QUARANTINED
+}
+
+enum KnowledgeSourceType {
+  CRAWLER_PAGE
+  FILE
+  TEXT
+}
+
+enum KnowledgeDocumentStatus {
+  INDEXING
+  ACTIVE
+  FAILED
+  QUARANTINED
+}
+
+enum SkillScope {
+  PLATFORM
+  WORKSPACE
+  PERSONAL
+}
+
+enum SkillCategory {
+  INSTRUCTION
+  TOOL
+  WORKFLOW
+}
+
+enum SkillStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum SkillVersionStatus {
+  DRAFT
+  PUBLISHED
+  DEPRECATED
+  REVOKED
+}
+
+enum CapabilityType {
+  BUILTIN
+  CONNECTOR
+  MCP
+}
+
+enum ConnectionScope {
+  WORKSPACE_SHARED
+  USER_DELEGATED
+}
+
+// ==========================================
+// KNOWLEDGE BASE MODELS
+// ==========================================
+
+model KnowledgeBase {
+  id                String              @id @default(uuid())
+  scope             KnowledgeScope      @default(WORKSPACE)
+  workspaceId       String?
+  ownerUserId       String
+  name              String
+  description       String?
+  qdrantCollection  String
+  retrievalDefaults Json?
+  status            KnowledgeBaseStatus @default(ACTIVE)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  crawlers          Crawler[]
+  documents         KnowledgeDocument[]
+  agentLinks        AgentKnowledgeBase[]
+
+  @@index([scope, status])
+  @@index([workspaceId, status])
+  @@map("knowledge_bases")
+}
+
+model KnowledgeDocument {
+  id              String                  @id @default(uuid())
+  knowledgeBaseId String
+  workspaceId     String?
+  sourceType      KnowledgeSourceType
+  sourceRefId     String?
+  title           String
+  uri             String?
+  contentHash     String
+  chunkCount      Int                     @default(0)
+  status          KnowledgeDocumentStatus @default(ACTIVE)
+  metadata        Json?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  knowledgeBase   KnowledgeBase           @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId, status])
+  @@index([workspaceId])
+  @@map("knowledge_documents")
+}
+
+model AgentKnowledgeBase {
+  id              String        @id @default(uuid())
+  agentId         String
+  agentVersionId  String?
+  knowledgeBaseId String
+  retrievalConfig Json?
+  isEnabled       Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentVersion    AgentVersion? @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([agentVersionId])
+  @@index([knowledgeBaseId])
+  @@map("agent_knowledge_bases")
+}
+
+// ==========================================
+// SKILL REGISTRY & TOOL GRANT MODELS
+// ==========================================
+
+model Skill {
+  id              String         @id @default(uuid())
+  scope           SkillScope     @default(PERSONAL)
+  workspaceId     String?
+  createdByUserId String
+  ownerUserId     String
+  key             String
+  name            String
+  description     String?
+  category        SkillCategory  @default(INSTRUCTION)
+  activeVersionId String?
+  status          SkillStatus    @default(ACTIVE)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  versions        SkillVersion[]
+  agentSkills     AgentSkill[]
+
+  @@unique([scope, workspaceId, key])
+  @@index([scope, workspaceId, status])
+  @@map("skills")
+}
+
+model SkillVersion {
+  id                   String             @id @default(uuid())
+  skillId              String
+  versionNumber        Int
+  status               SkillVersionStatus @default(DRAFT)
+  summary              String
+  instructions         String
+  inputSchema          Json?
+  requiredCapabilities String[]           @default([])
+  permittedToolKeys    String[]           @default([])
+  workflowDefinition   Json?
+  settingsSchema       Json?
+  configHash           String
+  publishedAt          DateTime?
+  publishedByUserId    String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  skill                Skill              @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  agentSkills          AgentSkill[]
+
+  @@unique([skillId, versionNumber])
+  @@index([skillId, status])
+  @@map("skill_versions")
+}
+
+model AgentSkill {
+  id               String        @id @default(uuid())
+  agentId          String
+  agentVersionId   String?
+  skillId          String
+  skillVersionId   String?
+  isEnabled        Boolean       @default(true)
+  priority         Int           @default(0)
+  settingsOverride Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  agent            Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentVersion     AgentVersion? @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+  skill            Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  skillVersion     SkillVersion? @relation(fields: [skillVersionId], references: [id], onDelete: SetNull)
+
+  @@index([agentId])
+  @@index([agentVersionId])
+  @@index([skillId])
+  @@map("agent_skills")
+}
+
+model AgentToolGrant {
+  id               String          @id @default(uuid())
+  agentId          String
+  agentVersionId   String?
+  workspaceId      String
+  capabilityType   CapabilityType
+  toolKey          String
+  connectionScope  ConnectionScope @default(WORKSPACE_SHARED)
+  connectionId     String?
+  allowedToolNames String[]        @default([])
+  requiresApproval Boolean         @default(false)
+  isEnabled        Boolean         @default(true)
+  constraints      Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  agent            Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentVersion     AgentVersion?   @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, workspaceId])
+  @@index([agentVersionId])
+  @@map("agent_tool_grants")
 }
 

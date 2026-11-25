@@ -8,26 +8,13 @@ import connectorRoutes from './connectorRoutes';
 import connectionRoutes from './connectionRoutes';
 import mcpRoutes from './mcpRoutes';
 import oauthRoutes from './oauthRoutes';
+import agentRoutes from './agentRoutes';
 import agentBindingRoutes from './agentBindingRoutes';
+import knowledgeRoutes from './knowledgeRoutes';
+import skillRoutes from './skillRoutes';
 import brandRoutes from './brandRoutes';
 
-/**
- * Main API Routes Aggregator Plugin.
- *
- * All routes registered here are mounted under the '/api' prefix in app.ts.
- *
- * Route Mapping:
- * - /api                     -> Welcome message
- * - /api/health              -> Health & liveness probe
- * - /api/ready               -> Readiness check (PostgreSQL + Qdrant)
- * - /api/crawlers            -> Crawler configuration CRUD & crawl trigger operations
- * - /api/crawl-runs          -> Crawl run inspection & live progress polling
- * - /api/chat                -> AI chat completions
- * - /api/search              -> Semantic Vector Search
-
- */
 const apiRoutes: FastifyPluginAsync = async (fastify) => {
-  // Base welcome endpoint
   fastify.get(
     '/',
     {
@@ -57,10 +44,8 @@ const apiRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Health and Readiness probes
   await fastify.register(healthRoutes, { prefix: '/health' });
 
-  // Direct alias for readiness check: /api/ready
   fastify.get(
     '/ready',
     {
@@ -81,34 +66,18 @@ const apiRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Website Crawler Management & Crawl Operations (/api/crawlers)
   await fastify.register(crawlerRoutes, { prefix: '/crawlers' });
-
-  // Crawl Run Progress, Monitoring & Page Logs (/api/crawl-runs)
   await fastify.register(crawlRunRoutes, { prefix: '/crawl-runs' });
-
-  // Retain existing agent / chat endpoints for backward compatibility
   await fastify.register(chatRoutes, { prefix: '/chat' });
-
-  // Semantic Vector Search (/api/search)
   await fastify.register(searchRoutes, { prefix: '/search' });
-
-  // Connector Platform Catalog (/api/connectors)
   await fastify.register(connectorRoutes, { prefix: '/connectors' });
-
-  // Workspace Connections Management (/api/connections)
   await fastify.register(connectionRoutes, { prefix: '/connections' });
-
-  // Model Context Protocol Management & Discovery (/api/mcp)
   await fastify.register(mcpRoutes, { prefix: '/mcp' });
-
-  // OAuth 2.0 & Connection Authentication (/api/connections/:id/auth & /api/oauth/callback)
   await fastify.register(oauthRoutes);
-
-  // Agent Connector Bindings (/api/agents/:agentId/connectors)
+  await fastify.register(agentRoutes, { prefix: '/agents' });
   await fastify.register(agentBindingRoutes, { prefix: '/agents' });
-
-  // Brandfetch Brand Data (/api/brands)
+  await fastify.register(knowledgeRoutes, { prefix: '/knowledge-bases' });
+  await fastify.register(skillRoutes, { prefix: '/skills' });
   await fastify.register(brandRoutes, { prefix: '/brands' });
 };
 

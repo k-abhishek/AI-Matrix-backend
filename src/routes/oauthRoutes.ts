@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import authManager from '../modules/connections/auth.manager';
-import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
+import { requireAuth, getWorkspaceContext } from '../middleware/auth';
 import env from '../config/env';
 import logger from '../lib/logger';
 
@@ -60,8 +60,7 @@ const oauthRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const authReq = request as AuthenticatedRequest;
-      const workspaceId = authReq.auth?.orgId || authReq.userId || 'default_user';
+      const { workspaceId } = getWorkspaceContext(request);
       const body = request.body || {};
 
       // Direct credential submission (API key or Bearer token)

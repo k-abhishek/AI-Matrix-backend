@@ -244,7 +244,7 @@ export class KnowledgeService {
 
   async listAgentKbs(ctx: WorkspaceContext, agentId: string) {
     const agent = await prisma.agent.findUnique({ where: { id: agentId } });
-    if (!agent || agent.workspaceId !== ctx.workspaceId) {
+    if (!agent || (!agent.isSystem && agent.workspaceId !== ctx.workspaceId)) {
       throw new NotFoundError(`Agent '${agentId}' not found in this workspace`);
     }
 

@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { createAgent, anthropicPromptCachingMiddleware } from "langchain";
-import { vectorKnowledgeBaseTool, webSearchTool } from "../../tools";
+import { indianLegalResearchTool, vectorKnowledgeBaseTool, webSearchTool } from "../../tools";
 import prisma from "../../lib/prisma";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import { WorkspaceContext } from "../../middleware/auth";
@@ -105,10 +105,10 @@ export class ChatService {
         include: { versions: { orderBy: { versionNumber: "desc" } } },
       });
 
-      if (!agent || agent.workspaceId !== ctx.workspaceId) {
+      if (!agent || (!agent.isSystem && agent.workspaceId !== ctx.workspaceId)) {
         throw new NotFoundError(`Agent '${input.agentId}' not found in this workspace`);
       }
-      if (agent.visibility === "PERSONAL" && agent.ownerUserId !== ctx.userId) {
+      if (!agent.isSystem && agent.visibility === "PERSONAL" && agent.ownerUserId !== ctx.userId) {
         throw new ForbiddenError("You do not have access to this personal agent");
       }
       if (agent.status === "ARCHIVED") {
@@ -265,7 +265,7 @@ export class ChatService {
       logger.warn(`[ChatService] Could not resolve dynamic tools: ${err.message}`);
     }
 
-    const allTools = [...dynamicTools, vectorKnowledgeBaseTool, webSearchTool];
+    const allTools = [...dynamicTools, vectorKnowledgeBaseTool, webSearchTool, indianLegalResearchTool];
     const systemPrompt = this.buildSystemPrompt(activeConnections);
 
     const agent = createAgent({
@@ -574,7 +574,7 @@ Use these tools whenever the user's request involves those services. If a tool r
       logger.warn(`[ChatService] Could not resolve dynamic tools: ${err.message}`);
     }
 
-    const allTools = [...dynamicTools, vectorKnowledgeBaseTool, webSearchTool];
+    const allTools = [...dynamicTools, vectorKnowledgeBaseTool, webSearchTool, indianLegalResearchTool];
     const systemPrompt = this.buildSystemPrompt(activeConnections);
 
     const agent = createAgent({

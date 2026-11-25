@@ -1,0 +1,151 @@
+{
+  "runId": "ec827092-79e7-4b92-99b5-788dd31ab1cf",
+  "status": "COMPLETED",
+  "dryRun": false,
+  "startedAt": "2026-11-25T17:18:13.144Z",
+  "completedAt": "2026-11-25T17:19:38.526Z",
+  "sources": [
+    {
+      "name": "Central Board of Indirect Taxes and Customs",
+      "status": "FAILED",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 1,
+      "restrictions": [],
+      "errors": [
+        "https://www.cbic.gov.in: fetch failed"
+      ]
+    },
+    {
+      "name": "Government of Karnataka Law Department",
+      "status": "FAILED",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 1,
+      "restrictions": [],
+      "errors": [
+        "https://dpal.karnataka.gov.in: fetch failed"
+      ]
+    },
+    {
+      "name": "India Code",
+      "status": "FAILED",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 2,
+      "restrictions": [],
+      "errors": [
+        "https://www.indiacode.nic.in/handle/123456789/1362/browse: The operation was aborted due to timeout",
+        "https://www.indiacode.nic.in/bitstream/: The operation was aborted due to timeout"
+      ]
+    },
+    {
+      "name": "Ministry of Corporate Affairs",
+      "status": "PENDING",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [
+        "https://www.mca.gov.in: HTTP 403 access restriction"
+      ],
+      "errors": []
+    },
+    {
+      "name": "Ministry of Labour and Employment",
+      "status": "PENDING",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [],
+      "errors": []
+    },
+    {
+      "name": "Supreme Court Reports",
+      "status": "PENDING",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [
+        "https://scr.sci.gov.in/scrsearch/: CAPTCHA / anti-bot gate detected (skipped without bypassing)"
+      ],
+      "errors": []
+    },
+    {
+      "name": "Supreme Court of India",
+      "status": "COMPLETED",
+      "discovered": 25,
+      "downloaded": 25,
+      "extracted": 25,
+      "persisted": 25,
+      "indexed": 2,
+      "failed": 0,
+      "restrictions": [],
+      "errors": []
+    },
+    {
+      "name": "e-Gazette of India",
+      "status": "FAILED",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 1,
+      "restrictions": [],
+      "errors": [
+        "https://egazette.gov.in: fetch failed"
+      ]
+    },
+    {
+      "name": "eCourts",
+      "status": "PENDING",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [
+        "https://ecourts.gov.in: CAPTCHA / anti-bot gate detected (skipped without bypassing)"
+      ],
+      "errors": []
+    }
+  ],
+  "documents": {
+    "discovered": 25,
+    "downloaded": 25,
+    "extracted": 25,
+    "persisted": 25,
+    "indexed": 2,
+    "failed": 0,
+    "pendingReview": 0,
+    "duplicatesSkipped": 0
+  },
+  "qdrant": {
+    "collection": "legal_knowledge_base",
+    "pointsCount": 15
+  },
+  "canonicalDatabase": {
+    "legalDocuments": 11,
+    "provisions": 15,
+    "versions": 11
+  }
+}

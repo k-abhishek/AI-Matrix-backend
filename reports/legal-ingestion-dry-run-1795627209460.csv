@@ -1,0 +1,8 @@
+source,status,discovered,downloaded,extracted,persisted,indexed,failed
+"Central Board of Indirect Taxes and Customs",NO_STATIC_DOCS,0,0,0,0,0,1
+"Government of Karnataka Law Department",NO_STATIC_DOCS,0,0,0,0,0,1
+"India Code",NO_STATIC_DOCS,0,0,0,0,0,2
+"Ministry of Corporate Affairs",NO_STATIC_DOCS,0,0,0,0,0,0
+"Ministry of Labour and Employment",NO_STATIC_DOCS,0,0,0,0,0,0
+"Supreme Court Reports",NO_STATIC_DOCS,0,0,0,0,0,0
+"Supreme Court of India",DRY_RUN_DISCOVERED,5,0,0,0,0,0

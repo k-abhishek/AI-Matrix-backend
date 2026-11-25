@@ -45,7 +45,8 @@ function toPrismaJson(
 }
 
 export class AgentService {
-  private assertCanRead(ctx: WorkspaceContext, agent: { workspaceId: string; visibility: string; ownerUserId: string }) {
+  private assertCanRead(ctx: WorkspaceContext, agent: { workspaceId: string; visibility: string; ownerUserId: string; isSystem?: boolean }) {
+    if (agent.isSystem) return;
     if (agent.workspaceId !== ctx.workspaceId) {
       throw new NotFoundError('Agent not found in this workspace');
     }
@@ -54,8 +55,12 @@ export class AgentService {
     }
   }
 
-  private assertCanManage(ctx: WorkspaceContext, agent: { workspaceId: string; visibility: string; ownerUserId: string }) {
+  private assertCanManage(ctx: WorkspaceContext, agent: { workspaceId: string; visibility: string; ownerUserId: string; isSystem?: boolean }) {
     this.assertCanRead(ctx, agent);
+
+    if (agent.isSystem) {
+      throw new ForbiddenError('System agents cannot be modified or deleted');
+    }
 
     if (agent.visibility === 'PERSONAL') {
       if (agent.ownerUserId !== ctx.userId) {
@@ -166,12 +171,12 @@ export class AgentService {
 
     return prisma.agent.findMany({
       where: {
-        workspaceId: ctx.workspaceId,
         status,
         ...(filter.visibility ? { visibility: filter.visibility } : {}),
         OR: [
-          { visibility: 'WORKSPACE' },
-          { visibility: 'PERSONAL', ownerUserId: ctx.userId },
+          { isSystem: true },
+          { workspaceId: ctx.workspaceId, visibility: 'WORKSPACE' },
+          { workspaceId: ctx.workspaceId, visibility: 'PERSONAL', ownerUserId: ctx.userId },
         ],
       },
       include: {
@@ -190,6 +195,18 @@ export class AgentService {
       include: {
         versions: {
           orderBy: { versionNumber: 'desc' },
+        },
+        knowledgeBases: {
+          where: { isEnabled: true },
+          include: { knowledgeBase: true },
+        },
+        skills: {
+          where: { isEnabled: true },
+          include: { skill: true, skillVersion: true },
+          orderBy: { priority: 'asc' },
+        },
+        toolGrants: {
+          where: { isEnabled: true },
         },
       },
     });
@@ -299,6 +316,9 @@ export class AgentService {
 
   async archiveAgent(ctx: WorkspaceContext, agentId: string) {
     const agent = await this.getAgentById(ctx, agentId);
+    if (agent.isSystem || agent.slug === 'indian-legal-research') {
+      throw new ForbiddenError('System agents cannot be deleted or archived');
+    }
     this.assertCanManage(ctx, agent);
 
     return prisma.agent.update({

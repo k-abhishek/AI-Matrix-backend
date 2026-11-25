@@ -1,0 +1,123 @@
+{
+  "runId": "dry-run-1795627209460",
+  "status": "DRY_RUN",
+  "dryRun": true,
+  "startedAt": "2026-11-25T17:20:09.460Z",
+  "completedAt": "2026-11-25T17:20:52.301Z",
+  "sources": [
+    {
+      "name": "Central Board of Indirect Taxes and Customs",
+      "status": "NO_STATIC_DOCS",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 1,
+      "restrictions": [],
+      "errors": [
+        "https://www.cbic.gov.in: fetch failed"
+      ]
+    },
+    {
+      "name": "Government of Karnataka Law Department",
+      "status": "NO_STATIC_DOCS",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 1,
+      "restrictions": [],
+      "errors": [
+        "https://dpal.karnataka.gov.in: fetch failed"
+      ]
+    },
+    {
+      "name": "India Code",
+      "status": "NO_STATIC_DOCS",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 2,
+      "restrictions": [],
+      "errors": [
+        "https://www.indiacode.nic.in/handle/123456789/1362/browse: The operation was aborted due to timeout",
+        "https://www.indiacode.nic.in/bitstream/: The operation was aborted due to timeout"
+      ]
+    },
+    {
+      "name": "Ministry of Corporate Affairs",
+      "status": "NO_STATIC_DOCS",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [
+        "https://www.mca.gov.in: HTTP 403 access restriction"
+      ],
+      "errors": []
+    },
+    {
+      "name": "Ministry of Labour and Employment",
+      "status": "NO_STATIC_DOCS",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [],
+      "errors": []
+    },
+    {
+      "name": "Supreme Court Reports",
+      "status": "NO_STATIC_DOCS",
+      "discovered": 0,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [
+        "https://scr.sci.gov.in/scrsearch/: CAPTCHA / anti-bot gate detected (skipped without bypassing)"
+      ],
+      "errors": []
+    },
+    {
+      "name": "Supreme Court of India",
+      "status": "DRY_RUN_DISCOVERED",
+      "discovered": 5,
+      "downloaded": 0,
+      "extracted": 0,
+      "persisted": 0,
+      "indexed": 0,
+      "failed": 0,
+      "restrictions": [],
+      "errors": []
+    }
+  ],
+  "documents": {
+    "discovered": 5,
+    "downloaded": 0,
+    "extracted": 0,
+    "persisted": 0,
+    "indexed": 0,
+    "failed": 0,
+    "pendingReview": 0,
+    "duplicatesSkipped": 0
+  },
+  "qdrant": {
+    "collection": "legal_knowledge_base",
+    "pointsCount": 15
+  },
+  "canonicalDatabase": {
+    "legalDocuments": 11,
+    "provisions": 15,
+    "versions": 11
+  }
+}

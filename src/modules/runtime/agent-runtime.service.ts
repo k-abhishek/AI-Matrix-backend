@@ -17,7 +17,7 @@ import mongoCheckpointSaver from './mongo-checkpointer.service';
 import { AgentRun, AgentExecutionEvent } from '../../models/AgentRun';
 import { IChatCitation, IChatMessage, IChatStep, IToolCall } from '../../models/ChatThread';
 import contextWindowService from '../../services/contextWindow.service';
-import { vectorKnowledgeBaseTool, webSearchTool } from '../../tools';
+import { indianLegalResearchTool, vectorKnowledgeBaseTool, webSearchTool } from '../../tools';
 import { inferStatusPhase } from '../agents/agent-tool-resolver.service';
 
 export interface ExecuteAgentInput {
@@ -101,10 +101,10 @@ export class AgentRuntimeService {
       },
     });
 
-    if (!agent || agent.workspaceId !== ctx.workspaceId) {
+    if (!agent || (!agent.isSystem && agent.workspaceId !== ctx.workspaceId)) {
       throw new NotFoundError(`Agent '${input.agentId}' not found in this workspace`);
     }
-    if (agent.visibility === 'PERSONAL' && agent.ownerUserId !== ctx.userId) {
+    if (!agent.isSystem && agent.visibility === 'PERSONAL' && agent.ownerUserId !== ctx.userId) {
       throw new ForbiddenError('You do not have access to this personal agent');
     }
     if (agent.status === 'ARCHIVED') {
@@ -501,12 +501,12 @@ export class AgentRuntimeService {
       const compiledGraph = graphBuilderService.buildGraph({
         model,
         systemInstructions:
-          'You are a helpful and intelligent AI assistant Matrix. Provide concise, accurate answers.',
+          'You are a helpful and intelligent AI assistant Matrix. Provide concise, accurate answers. For questions involving Indian law, statutes, constitutional rights, employment/labour disputes, corporate compliance, criminal/civil procedure, taxation, or legal remedies, invoke the indian_legal_research tool first, pass relevant facts (including state and incident date if mentioned), and present your final answer in clear, conversational Markdown with headings, bullet points, verified citations, and a clean "**Disclaimer:** ..." note (never wrap paragraphs in "***" or add trailing asterisks). Never output raw JSON or wrap your response in a ```json code block.',
         maxIterations: 15,
         workspaceId: ctx.workspaceId,
         knowledgeBaseIds: [],
         skills: [],
-        tools: [vectorKnowledgeBaseTool, webSearchTool],
+        tools: [vectorKnowledgeBaseTool, webSearchTool, indianLegalResearchTool],
         approvalRequiredTools: new Set(),
         checkpointer: mongoCheckpointSaver,
       });
@@ -517,10 +517,10 @@ export class AgentRuntimeService {
       where: { id: params.agentId },
       include: { versions: true },
     });
-    if (!agent || agent.workspaceId !== ctx.workspaceId) {
+    if (!agent || (!agent.isSystem && agent.workspaceId !== ctx.workspaceId)) {
       throw new NotFoundError(`Agent '${params.agentId}' not found in this workspace`);
     }
-    if (agent.visibility === 'PERSONAL' && agent.ownerUserId !== ctx.userId) {
+    if (!agent.isSystem && agent.visibility === 'PERSONAL' && agent.ownerUserId !== ctx.userId) {
       throw new ForbiddenError('You do not have access to this personal agent');
     }
 
@@ -674,7 +674,10 @@ export class AgentRuntimeService {
           for await (const event of eventStream) {
             if (signal?.aborted) return;
 
-            if (event.event === 'on_chat_model_stream') {
+            if (
+              event.event === 'on_chat_model_stream' &&
+              (!event.metadata?.langgraph_node || event.metadata.langgraph_node === 'agent_llm')
+            ) {
               const chunk = event.data?.chunk;
               let textChunk = '';
               if (typeof chunk?.content === 'string') {

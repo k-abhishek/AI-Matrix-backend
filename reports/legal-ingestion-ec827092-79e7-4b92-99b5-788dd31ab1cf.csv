@@ -1,0 +1,10 @@
+source,status,discovered,downloaded,extracted,persisted,indexed,failed
+"Central Board of Indirect Taxes and Customs",FAILED,0,0,0,0,0,1
+"Government of Karnataka Law Department",FAILED,0,0,0,0,0,1
+"India Code",FAILED,0,0,0,0,0,2
+"Ministry of Corporate Affairs",PENDING,0,0,0,0,0,0
+"Ministry of Labour and Employment",PENDING,0,0,0,0,0,0
+"Supreme Court Reports",PENDING,0,0,0,0,0,0
+"Supreme Court of India",COMPLETED,25,25,25,25,2,0
+"e-Gazette of India",FAILED,0,0,0,0,0,1
+"eCourts",PENDING,0,0,0,0,0,0

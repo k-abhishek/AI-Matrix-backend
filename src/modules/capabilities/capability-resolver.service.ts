@@ -4,6 +4,31 @@ import { WorkspaceContext } from '../../middleware/auth';
 import executionEngineService from '../execution/execution-engine.service';
 import jsonSchemaToZod from '../../utils/schema-converter';
 import { tool } from '@langchain/core/tools';
+import { indianLegalResearchTool, vectorKnowledgeBaseTool, webSearchTool } from '../../tools';
+import {
+  searchLegalKnowledgeTool,
+  getLegalProvisionTool,
+  getLegalDocumentTool,
+  getProvisionHistoryTool,
+  getRelatedAuthoritiesTool,
+  searchCaseLawTool,
+  verifyLegalCitationTool,
+  assessLegalApplicabilityTool,
+} from '../legal-research/agents/tools';
+
+const BUILTIN_TOOL_MAP: Record<string, any> = {
+  indian_legal_research: indianLegalResearchTool,
+  search_knowledge_base: vectorKnowledgeBaseTool,
+  web_search: webSearchTool,
+  search_legal_knowledge: searchLegalKnowledgeTool,
+  get_legal_provision: getLegalProvisionTool,
+  get_legal_document: getLegalDocumentTool,
+  get_provision_history: getProvisionHistoryTool,
+  get_related_legal_authorities: getRelatedAuthoritiesTool,
+  search_case_law: searchCaseLawTool,
+  verify_legal_citation: verifyLegalCitationTool,
+  assess_legal_applicability: assessLegalApplicabilityTool,
+};
 
 export interface ConnectionResolutionError {
   code: 'CONNECTION_REQUIRED' | 'CONNECTION_EXPIRED' | 'PERMISSION_DENIED';
@@ -38,9 +63,12 @@ export class CapabilityResolverService {
     const grants = await prisma.agentToolGrant.findMany({
       where: {
         agentId,
-        workspaceId: ctx.workspaceId,
         isEnabled: true,
         ...(agentVersionId ? { agentVersionId } : { agentVersionId: null }),
+        OR: [
+          { workspaceId: ctx.workspaceId },
+          { workspaceId: 'platform', capabilityType: 'BUILTIN' },
+        ],
       },
     });
 
@@ -53,6 +81,15 @@ export class CapabilityResolverService {
       }
 
       if (grant.capabilityType === 'BUILTIN') {
+        const builtinTool = BUILTIN_TOOL_MAP[grant.toolKey];
+        if (builtinTool) {
+          tools.push({
+            toolKey: grant.toolKey,
+            langchainTool: builtinTool,
+            requiresApproval: grant.requiresApproval,
+            connectionScope: grant.connectionScope,
+          });
+        }
         continue;
       }
 

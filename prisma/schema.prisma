@@ -443,6 +443,7 @@ model Agent {
   name            String
   description     String?
   slug            String
+  isSystem        Boolean         @default(false)
   status          AgentStatus     @default(ACTIVE)
   activeVersionId String?
   draftConfig     Json?
@@ -749,5 +750,414 @@ model AgentToolGrant {
   @@index([agentId, workspaceId])
   @@index([agentVersionId])
   @@map("agent_tool_grants")
+}
+
+// ==========================================
+// INDIAN LEGAL KNOWLEDGE BASE ENUMS
+// ==========================================
+
+enum LegalDomain {
+  CONSTITUTIONAL
+  CRIMINAL
+  CIVIL
+  CORPORATE_COMMERCIAL
+  LABOUR_EMPLOYMENT
+  FAMILY
+  TAXATION
+  CONSUMER_PROTECTION
+  PROPERTY_REAL_ESTATE
+  CYBER_TECHNOLOGY
+  BANKING_FINANCIAL
+  ADMINISTRATIVE_REGULATORY
+  INTELLECTUAL_PROPERTY
+  ENVIRONMENTAL
+  STATE_LEGISLATION
+}
+
+enum LegalDocumentType {
+  CONSTITUTION
+  CENTRAL_ACT
+  STATE_ACT
+  AMENDMENT_ACT
+  RULE
+  REGULATION
+  NOTIFICATION
+  CIRCULAR
+  ORDINANCE
+  SUPREME_COURT_JUDGMENT
+  HIGH_COURT_JUDGMENT
+  TRIBUNAL_DECISION
+}
+
+enum LegalAuthorityTier {
+  PRIMARY_LEGISLATION
+  OFFICIAL_AMENDMENT
+  OFFICIAL_NOTIFICATION
+  BINDING_JUDICIAL
+  PERSUASIVE_JUDICIAL
+  SECONDARY_COMMENTARY
+  UNVERIFIED
+}
+
+enum LegalVerificationStatus {
+  VERIFIED
+  PENDING_REVIEW
+  DISPUTED
+  UNVERIFIED
+}
+
+enum LegalProvisionType {
+  PART
+  CHAPTER
+  SECTION
+  ARTICLE
+  REGULATION
+  RULE
+  SUBSECTION
+  CLAUSE
+  SUB_CLAUSE
+  PROVISO
+  EXPLANATION
+  SCHEDULE
+}
+
+enum LegalProvisionStatus {
+  ACTIVE
+  AMENDED
+  REPEALED
+  SUPERSEDED
+  PARTIAL_COMMENCEMENT
+}
+
+enum LegalPrecedentWeight {
+  BINDING
+  PERSUASIVE
+  OVERRULED
+  DISTINGUISHED
+}
+
+enum LegalRelationshipType {
+  AMENDS
+  REPEALS
+  SAVES
+  INTERPRETS
+  OVERRULES
+  DISTINGUISHES
+  CROSS_REFERENCES
+  SUPPLEMENTS
+}
+
+// ==========================================
+// INDIAN LEGAL KNOWLEDGE BASE MODELS
+// ==========================================
+
+model LegalSource {
+  id                 String                  @id @default(uuid())
+  name               String                  @unique
+  sourceKey          String?                 @unique
+  sourceType         String                  @default("LEGISLATION") // LEGISLATION, GAZETTE, JUDICIAL
+  authorityTier      LegalAuthorityTier
+  baseUrl            String                  @unique
+  jurisdiction       String                  @default("INDIA")
+  jurisdictionLevel  String                  @default("CENTRAL")
+  ingestionMethod    String                  @default("WEB_CRAWL")
+  enabled            Boolean                 @default(true)
+  description        String?
+  verificationStatus LegalVerificationStatus @default(VERIFIED)
+  crawlConfig        Json?
+  metadata           Json?
+  ingestionStatus    String                  @default("PENDING") // PENDING, RUNNING, COMPLETED, PARTIALLY_COMPLETED, FAILED
+  lastIngestionAt    DateTime?
+  lastSuccessAt      DateTime?
+  discoveredCount    Int                     @default(0)
+  downloadedCount    Int                     @default(0)
+  extractedCount     Int                     @default(0)
+  persistedCount     Int                     @default(0)
+  indexedCount       Int                     @default(0)
+  failedCount        Int                     @default(0)
+  lastError          String?
+  lastRunId          String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  documents          LegalDocument[]
+  discoveredDocs     DiscoveredLegalDocument[]
+
+  @@index([authorityTier])
+  @@index([enabled, ingestionStatus])
+  @@map("legal_sources")
+}
+
+model LegalIngestionRun {
+  id                      String    @id @default(uuid())
+  runType                 String    @default("INITIAL_LEGAL_IMPORT")
+  status                  String    @default("PENDING") // PENDING, RUNNING, COMPLETED, PARTIALLY_COMPLETED, FAILED
+  startedAt               DateTime  @default(now())
+  completedAt             DateTime?
+  discoveredCount         Int       @default(0)
+  downloadedCount         Int       @default(0)
+  extractedCount          Int       @default(0)
+  persistedCount          Int       @default(0)
+  indexedCount            Int       @default(0)
+  failedCount             Int       @default(0)
+  duplicateCount          Int       @default(0)
+  pendingReviewCount      Int       @default(0)
+  lastProcessedDocumentId String?
+  errorSummary            String?
+  reportJson              Json?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([runType, status])
+  @@map("legal_ingestion_runs")
+}
+
+model DiscoveredLegalDocument {
+  id               String    @id @default(uuid())
+  knowledgeSourceId String
+  title            String
+  originalUrl      String
+  canonicalUrl     String    @unique
+  fileType         String
+  mimeType         String?
+  fileSize         Int?
+  sha256           String?
+  storageReference String?
+  legalDocumentId  String?
+  discoveredAt     DateTime  @default(now())
+  downloadedAt     DateTime?
+  downloadStatus   String    @default("PENDING") // PENDING, DOWNLOADED, FAILED, DUPLICATE
+  processingStatus String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, PENDING_REVIEW
+  lastError        String?
+  metadata         Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  knowledgeSource  LegalSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeSourceId, downloadStatus, processingStatus])
+  @@index([sha256])
+  @@map("discovered_legal_documents")
+}
+
+model LegalDocument {
+  id                 String                  @id @default(uuid())
+  title              String
+  shortTitle         String?
+  documentType       LegalDocumentType
+  legalDomain        LegalDomain
+  jurisdiction       String                  @default("IN")
+  state              String?
+  actNumber          String?
+  enactmentDate      DateTime?
+  commencementDate   DateTime?
+  repealedDate       DateTime?
+  status             LegalProvisionStatus    @default(ACTIVE)
+  sourceId           String
+  sourceUrl          String
+  verificationStatus LegalVerificationStatus @default(VERIFIED)
+  contentHash        String
+  rawMongoId         String?
+  metadata           Json?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  source             LegalSource             @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  versions           LegalDocumentVersion[]
+  provisions         LegalProvision[]
+  judgment           LegalJudgment?
+  amendmentsAsActor  LegalAmendment[]        @relation("AmendingDocument")
+  amendmentsAsTarget LegalAmendment[]        @relation("TargetDocument")
+  citationsFrom      LegalCitation[]         @relation("CitationSourceDocument")
+  citationsTo        LegalCitation[]         @relation("CitationTargetDocument")
+  relationshipsFrom  LegalRelationship[]     @relation("RelationshipFromDocument")
+  relationshipsTo    LegalRelationship[]     @relation("RelationshipToDocument")
+
+  @@index([legalDomain, jurisdiction, state])
+  @@index([documentType, status])
+  @@index([shortTitle])
+  @@index([actNumber])
+  @@map("legal_documents")
+}
+
+model LegalDocumentVersion {
+  id              String                  @id @default(uuid())
+  documentId      String
+  versionNumber   Int
+  effectiveFrom   DateTime?
+  effectiveUntil  DateTime?
+  isCurrent       Boolean                 @default(true)
+  amendmentNote   String?
+  contentHash     String
+  rawMongoId      String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  document        LegalDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  provisionVersions LegalProvisionVersion[]
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId, isCurrent])
+  @@map("legal_document_versions")
+}
+
+model LegalProvision {
+  id              String                  @id @default(uuid())
+  documentId      String
+  parentId        String?
+  provisionType   LegalProvisionType
+  provisionNumber String
+  heading         String?
+  hierarchyPath   String
+  sortOrder       Int                     @default(0)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  document        LegalDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent          LegalProvision?         @relation("ProvisionHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children        LegalProvision[]        @relation("ProvisionHierarchy")
+  versions        LegalProvisionVersion[]
+  amendments      LegalAmendment[]        @relation("TargetProvision")
+  citations       LegalCitation[]         @relation("CitationTargetProvision")
+  relationshipsFrom LegalRelationship[]   @relation("RelationshipFromProvision")
+  relationshipsTo   LegalRelationship[]   @relation("RelationshipToProvision")
+
+  @@unique([documentId, hierarchyPath])
+  @@index([documentId, provisionNumber])
+  @@index([parentId])
+  @@map("legal_provisions")
+}
+
+model LegalProvisionVersion {
+  id                    String               @id @default(uuid())
+  provisionId           String
+  documentVersionId     String
+  versionNumber         Int                  @default(1)
+  exactText             String
+  effectiveFrom         DateTime?
+  effectiveUntil        DateTime?
+  isCurrent             Boolean              @default(true)
+  status                LegalProvisionStatus @default(ACTIVE)
+  commencementUncertain Boolean              @default(false)
+  uncertaintyNote       String?
+  contentHash           String
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  provision             LegalProvision       @relation(fields: [provisionId], references: [id], onDelete: Cascade)
+  documentVersion       LegalDocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  chunks                LegalProvisionChunk[]
+
+  @@unique([provisionId, documentVersionId])
+  @@index([provisionId, isCurrent])
+  @@index([effectiveFrom, effectiveUntil])
+  @@index([status])
+  @@map("legal_provision_versions")
+}
+
+model LegalProvisionChunk {
+  id                 String                @id @default(uuid())
+  provisionVersionId String
+  chunkIndex         Int
+  qdrantPointId      String                @unique
+  contentHash        String
+  tokenCount         Int                   @default(0)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  provisionVersion   LegalProvisionVersion @relation(fields: [provisionVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([provisionVersionId, chunkIndex])
+  @@index([provisionVersionId])
+  @@map("legal_provision_chunks")
+}
+
+model LegalAmendment {
+  id                 String         @id @default(uuid())
+  amendingDocumentId String
+  targetDocumentId   String
+  targetProvisionId  String?
+  amendmentType      String         // SUBSTITUTED, INSERTED, OMITTED, REPEALED, SAVED
+  effectiveDate      DateTime?
+  description        String
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  amendingDocument   LegalDocument  @relation("AmendingDocument", fields: [amendingDocumentId], references: [id], onDelete: Cascade)
+  targetDocument     LegalDocument  @relation("TargetDocument", fields: [targetDocumentId], references: [id], onDelete: Cascade)
+  targetProvision    LegalProvision? @relation("TargetProvision", fields: [targetProvisionId], references: [id], onDelete: SetNull)
+
+  @@index([targetDocumentId])
+  @@index([targetProvisionId])
+  @@map("legal_amendments")
+}
+
+model LegalJudgment {
+  id                 String                  @id @default(uuid())
+  documentId         String                  @unique
+  caseName           String
+  court              String
+  caseNumber         String?
+  judgmentDate       DateTime
+  citation           String?
+  bench              String?
+  precedentWeight    LegalPrecedentWeight    @default(BINDING)
+  paragraphCount     Int?
+  sourceUrl          String
+  verificationStatus LegalVerificationStatus @default(VERIFIED)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  document           LegalDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  citations          LegalCitation[]         @relation("CitationTargetJudgment")
+
+  @@index([court, judgmentDate])
+  @@index([citation])
+  @@index([caseName])
+  @@map("legal_judgments")
+}
+
+model LegalCitation {
+  id                String          @id @default(uuid())
+  sourceDocumentId  String
+  targetDocumentId  String?
+  targetProvisionId String?
+  targetJudgmentId  String?
+  paragraphRefs     String[]        @default([])
+  citationText      String
+  createdAt         DateTime        @default(now())
+
+  sourceDocument    LegalDocument   @relation("CitationSourceDocument", fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  targetDocument    LegalDocument?  @relation("CitationTargetDocument", fields: [targetDocumentId], references: [id], onDelete: SetNull)
+  targetProvision   LegalProvision? @relation("CitationTargetProvision", fields: [targetProvisionId], references: [id], onDelete: SetNull)
+  targetJudgment    LegalJudgment?  @relation("CitationTargetJudgment", fields: [targetJudgmentId], references: [id], onDelete: SetNull)
+
+  @@index([sourceDocumentId])
+  @@index([targetProvisionId])
+  @@index([targetJudgmentId])
+  @@map("legal_citations")
+}
+
+model LegalRelationship {
+  id               String                @id @default(uuid())
+  fromDocumentId   String
+  toDocumentId     String
+  fromProvisionId  String?
+  toProvisionId    String?
+  relationshipType LegalRelationshipType
+  effectiveDate    DateTime?
+  notes            String?
+  createdAt        DateTime              @default(now())
+
+  fromDocument     LegalDocument         @relation("RelationshipFromDocument", fields: [fromDocumentId], references: [id], onDelete: Cascade)
+  toDocument       LegalDocument         @relation("RelationshipToDocument", fields: [toDocumentId], references: [id], onDelete: Cascade)
+  fromProvision    LegalProvision?       @relation("RelationshipFromProvision", fields: [fromProvisionId], references: [id], onDelete: SetNull)
+  toProvision      LegalProvision?       @relation("RelationshipToProvision", fields: [toProvisionId], references: [id], onDelete: SetNull)
+
+  @@index([fromDocumentId, relationshipType])
+  @@index([toDocumentId, relationshipType])
+  @@index([fromProvisionId])
+  @@index([toProvisionId])
+  @@map("legal_relationships")
 }
 
